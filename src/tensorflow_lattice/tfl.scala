@@ -1,14 +1,12 @@
-package mlir_libraries
+package tensorflow_lattice
+
+import mlir_libraries.types._
 
 import spatial.libdsl._
-import argon.lang.implicits._
 
 object tfl {
-  import types._
-  import ConversionImplicits._
 
-  def CategoricalCalibration[T : Num](categorical_calibration_kernel: Array[Array[Double]])(arg:Readable2D[T])(implicit state: argon.State): Readable2D[T] = {
-    import spatial.dsl._
+  def CategoricalCalibration[T : Num](categorical_calibration_kernel: scala.Array[scala.Array[scala.Double]])(arg:Readable2D[T])(implicit state: argon.State): Readable2D[T] = {
     val param_list = categorical_calibration_kernel.flatten.map { x => Bits(x.toUnchecked[T]) }.toSeq
     val params = LUT[T](param_list.length)(param_list:_*)
     new Readable2D[T] {
@@ -21,8 +19,7 @@ object tfl {
     }
   }
 
-  def PWLCalibration[T:Num](pwl_calibration_kernel: Array[Array[Double]], input_keypoints: Array[Double])(arg:Readable2D[T])(implicit state: argon.State) = {
-    import spatial.dsl._
+  def PWLCalibration[T:Num](pwl_calibration_kernel: scala.Array[scala.Array[scala.Double]], input_keypoints: scala.Array[scala.Double])(arg:Readable2D[T])(implicit state: argon.State) = {
     val kernel_list = pwl_calibration_kernel.flatten
     // kernel_list(0) is the bias
     val bias: T = kernel_list.head.toUnchecked[T]
@@ -44,7 +41,9 @@ object tfl {
           val result: T = max(min(raw_weight, 1), 0) * d.toUnchecked[T]
           result
         }
-        sub_components.fold(bias) { _ + _ }
+        sub_components.fold(bias) {
+          _ + _
+        }
       }
 
       lazy val shape: Seq[I32] = arg.shape
@@ -52,7 +51,7 @@ object tfl {
   }
 
   protected def ComputeStrides(dimensions: IndexedSeq[Int]): IndexedSeq[Int] = {
-    val strides: Array[Int] = Array.fill(dimensions.length){1}
+    val strides: scala.Array[Int] = scala.Array.fill(dimensions.length){1}
     scala.Range(1, dimensions.length, 1) foreach {
       d => {
         strides(d) = strides(d-1) * dimensions(d-1)
@@ -61,9 +60,8 @@ object tfl {
     strides
   }
 
-  def Lattice[T : Num](lattice_kernel: Array[Array[Double]], tp: String, shape: Array[Int])(arg:Readable2D[T])(implicit state:argon.State, ctx: SrcCtx): Readable2D[T] = {
+  def Lattice[T : Num](lattice_kernel: scala.Array[scala.Array[scala.Double]], tp: String, shape: scala.Array[Int])(arg:Readable2D[T])(implicit state:argon.State, ctx: SrcCtx): Readable2D[T] = {
     import lattice.HypercubeLattice
-    import spatial.dsl._
 
     type ResidualType = T
     type AccumResidualType = T
@@ -84,7 +82,7 @@ object tfl {
           val x = arg(i, d0).to[ResidualType]
           Seq(x.to[AccumResidualType], 1.toFloat.to[AccumResidualType] - x.to[AccumResidualType])
         }
-        // Compute all hypervolumes in binary counting order (000, 001, 010, 011, etc..)
+        // Compute all hypervolumes in binary counting order (000, 001, 010, 011, etc.)
         val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(residualPairs: _*)(_ * _)
         // Compute hypercube origin
         val base: Seq[ParameterIndex] = scala.Array.tabulate(dimensions) { x => arg(x, d0).to[ParameterIndex] }
@@ -113,9 +111,7 @@ object tfl {
 }
 
 object tf {
-  import types._
   def Concatenate[T:Num](axis: Int)(args:ReadableND[T]*)(implicit state:argon.State): ReadableND[T] = {
-    import spatial.dsl._
     val arg_dims = args.map {_.shape.length}.distinct
     assert(arg_dims.size == 1)
 

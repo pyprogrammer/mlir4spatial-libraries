@@ -1,5 +1,4 @@
 package mlir_libraries
-import spatial.libdsl._
 
 object types {
   trait Shaped {
@@ -21,6 +20,7 @@ object types {
 
 object ConversionImplicits {
   import types._
+  import spatial.libdsl._
   implicit def RR1[T](rm : SRAM1[T])(implicit state: argon.State) : Readable1D[T] = {
     new Readable1D[T] {
       override def apply(d0: I32): T = rm(d0)

@@ -1,4 +1,4 @@
-name := "spatial-lattice"
+name := "mlir4spatial-libraries"
 
 version := "0.1"
 

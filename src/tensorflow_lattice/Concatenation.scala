@@ -18,7 +18,6 @@ trait Concatenation {
 
     new ReadableND[T] {
       override def apply(index: spatial.dsl.I32*): T = {
-//        println(s"Concatenate Read Index: $index")
 
         // compute breakpoints for each respective bank. This can be phrased as a priority mux across all banks, with
         // the enable signal being whether the ub[axis] > index[axis]
@@ -61,7 +60,10 @@ trait Concatenation {
         assert(pruned_enables.nonEmpty, "Cannot have an empty enable list.")
 //
 //        println(s"Enables: $enables")
-//        println(s"Pruned Enables: $pruned_enables")
+        if (pruned_enables.length > 1) {
+          println(s"Start: Concatenate Read Index: $index")
+          println(s"Pruned Enables: $pruned_enables")
+        }
 //        println(s"Target Index: $target_index")
 
         val reads = pruned_enables map {
@@ -81,7 +83,7 @@ trait Concatenation {
             input(sub_index:_*)
         }
         assert(pruned_enables.length == reads.length, f"Enables (${enables.length}) and Reads (${reads.length}) should have same length.")
-        if (enables.length == 1) {
+        if (pruned_enables.length == 1) {
           reads.head
         } else {
           priorityMux(pruned_enables map {_._1}, reads)

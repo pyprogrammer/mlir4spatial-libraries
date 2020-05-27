@@ -19,7 +19,8 @@ trait PWLCalibration {
     val weights = pwl_calibration_kernel.tail
     val weight_luts = weights map {
       vec => {
-        LUT[T](vec.length)((vec map {x => Bits(x.toUnchecked[T])}):_*)
+//        LUT[T](vec.length)((vec map {x => Bits(x.toUnchecked[T])}):_*)
+        (vec map {x => x.toUnchecked[T]})
       }
     }
 
@@ -35,7 +36,8 @@ trait PWLCalibration {
         // The kernel is phrased as deltas, so we add up all deltas less than the value
         val sub_components = start_end_delta zip recip_lengths map { case (((s, _), d), l) =>
           val raw_weight: T = (value - s.toUnchecked[T]) * l.toUnchecked[T]
-          val result: T = max(min(raw_weight, 1), 0) * d(d1)
+//          val result: T = max(min(raw_weight, 1), 0) * d(d1)
+          val result: T = max(min(raw_weight, 1), 0) * oneHotMux(Seq.tabulate(weights.size){i => i.to[I32] == d1}, d.toSeq)
           result
         }
         sub_components.fold(bias(d1)) {
@@ -43,7 +45,7 @@ trait PWLCalibration {
         }
       }
 
-      lazy val shape: Seq[I32] = Seq(arg.shape(0), units)
+      lazy val shape: Seq[I32] = Seq(arg.shape(0), I32(units))
     }
   }
 

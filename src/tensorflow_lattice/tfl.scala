@@ -120,32 +120,11 @@ object tfl extends PWLCalibration {
   }
 
   def Linear[T:Num:ClassTag](linear_layer_bias: Double, linear_layer_kernel: Array[Array[Double]])(arg: Readable2D[T])(implicit state: argon.State): Readable2D[T] = {
-    val input_units = linear_layer_kernel.length
-    val output_units = {
-      val output_shapes = (linear_layer_kernel map {_.length}).distinct
-      assert(output_shapes.length == 1, s"Found multiple possible output shapes: $output_shapes")
-      output_shapes.head
-    }
-
-    val kernel_lut = LUT[T](input_units, output_units)((linear_layer_kernel.flatten map {x => Bits(x.toUnchecked[T])}):_*)
-
-    new Readable2D[T] {
-      override def apply(batch: I32, dim: I32): T = {
-        // Goes from (batch x input units) x kernel^T (input x output) -> batch x output units.
-        // Given C = AB, we have C_ij = Sum_k A_ik B_kj
-        val result = Reg[T](linear_layer_bias.toUnchecked[T])
-//        Fold(result)(I32(input_units) by I32(1) par I32(input_units)) {
-//          inner: I32 =>
-//            arg(batch, inner) * kernel_lut(inner, dim)
-//        } {_ + _}
-        linear_layer_bias.toUnchecked[T] + (Array.tabulate(input_units) { i => arg(batch, i) * kernel_lut(I32(i), dim)}).reduce{_+_}
-      }
-      lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(output_units))
-    }
+    tf.Dense(Array(linear_layer_bias), linear_layer_kernel)(arg)
   }
 }
 
-object tf extends Concatenation {
+object tf extends Concatenation with Blas3 {
 
   def Minimum[T:Num](constant: Double)(arg:ReadableND[T])(implicit state:argon.State): ReadableND[T] = {
     new ReadableND[T] {

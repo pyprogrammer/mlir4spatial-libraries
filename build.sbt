@@ -14,6 +14,7 @@ scalacOptions ++= Seq("-explaintypes")
 
 unmanagedSourceDirectories in Compile += baseDirectory.value / "src/mlir_libraries/"
 unmanagedSourceDirectories in Compile += baseDirectory.value / "src/tensorflow_lattice/"
+unmanagedSourceDirectories in Compile += baseDirectory.value / "src/models/"
 
 //resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository/"
 

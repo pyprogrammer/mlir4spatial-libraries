@@ -14,7 +14,6 @@ trait Concatenation {
 
     val axis_sizes = args.map {_.shape(concat_axis)}
     val breakpoints = axis_sizes.tail.scanLeft(axis_sizes.head){_ + _}
-//    println(s"Breakpoints: ${breakpoints}")
 
     new ReadableND[T] {
       override def apply(index: spatial.dsl.I32*): T = {
@@ -58,13 +57,10 @@ trait Concatenation {
         }
 
         assert(pruned_enables.nonEmpty, "Cannot have an empty enable list.")
-//
-//        println(s"Enables: $enables")
         if (pruned_enables.length > 1) {
           println(s"Start: Concatenate Read Index: $index")
           println(s"Pruned Enables: $pruned_enables")
         }
-//        println(s"Target Index: $target_index")
 
         val reads = pruned_enables map {
           case (_, input_index) =>
@@ -82,7 +78,8 @@ trait Concatenation {
             }
             input(sub_index:_*)
         }
-        assert(pruned_enables.length == reads.length, f"Enables (${enables.length}) and Reads (${reads.length}) should have same length.")
+        assert(pruned_enables.length == reads.length,
+          f"Enables (${enables.length}) and Reads (${reads.length}) should have same length.")
         if (pruned_enables.length == 1) {
           reads.head
         } else {
@@ -113,14 +110,12 @@ trait Concatenation {
       override def apply(index: dsl.I32*): T = {
         // cut out middle dimension.
         val new_index = index.take(axis) ++ index.drop(axis + 1)
-//        println(s"Expanding Dims (axis = $axis): ${index} -> ${new_index}")
         arg(new_index:_*)
       }
     }
   }
 
   def Stack[T: Num](axis: Int)(args:ReadableND[T]*)(implicit state:argon.State): ReadableND[T] = {
-//    println(f"Stack: Inserting Axis: $axis into ${args map {_.shape}}")
     // tf.Stack inserts a new axis at the specified location.
     // We achieve this by shimming a new ReadableND in, and then Concatenating them.
     val expanded = args map { x => expand_dims(axis)(x)}

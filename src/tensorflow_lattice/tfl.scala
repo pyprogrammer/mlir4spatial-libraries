@@ -6,21 +6,22 @@ import _root_.spatial.dsl
 
 import scala.reflect.ClassTag
 
-object tfl extends PWLCalibration {
+object tfl extends PWLCalibration with Lattice {
 
   private val PWL_mode = sys.env.getOrElse("PWL", "mux") == "mux"
-  private val PO2Opt = sys.env.getOrElse("PO2Opt", "true") == "true"
-
-  println("PWL_mode=" + PWL_mode)
-  println("PO2Opt=" + PO2Opt)
 
   def CategoricalCalibration[T : Num](categorical_calibration_kernel: scala.Array[scala.Array[scala.Double]])(arg:Readable2D[T])(implicit state: argon.State): Readable2D[T] = {
+    val units = {
+      val lengths = (categorical_calibration_kernel map {_.length}).distinct
+      assert(lengths.length == 1, f"Found multiple possible number of units for Categorical Calibration. Expected 1. ${lengths}")
+      lengths.head
+    }
     val param_list = categorical_calibration_kernel.flatten.map { x => Bits(x.toUnchecked[T]) }.toSeq
-    val params = LUT[T](param_list.length)(param_list:_*)
+    val params = LUT[T](categorical_calibration_kernel.length, units)(param_list:_*)
     new Readable2D[T] {
       override def apply(d0: I32, d1: I32): T = {
         val value = arg(d0, d1)
-        params(value.to[I32])
+        params(value.to[I32], d1)
       }
 
       lazy val shape: Seq[I32] = arg.shape
@@ -34,92 +35,7 @@ object tfl extends PWLCalibration {
     })(pwl_calibration_kernel, input_keypoints)(arg)
   }
 
-  protected def ComputeStrides(dimensions: IndexedSeq[Int]): IndexedSeq[Int] = {
-    val strides: scala.Array[Int] = scala.Array.fill(dimensions.length){1}
-    scala.Range(1, dimensions.length, 1) foreach {
-      d => {
-        strides(d) = strides(d-1) * dimensions(d-1)
-      }
-    }
-    strides
-  }
-
-  def Lattice[T : Num](lattice_kernel: scala.Array[scala.Array[scala.Double]], tp: String, shape: scala.Array[scala.Int], units: Int)(arg:ReadableND[T])(implicit state:argon.State, ctx: SrcCtx): Readable2D[T] = {
-    import lattice.HypercubeLattice
-
-    type ResidualType = T
-    type AccumResidualType = T
-    type ParameterIndex = I32
-    type OutputType = T
-
-    val dimensions = shape.length
-    val strides = ComputeStrides(shape)
-
-    // Ignore tp for now, always "hypercube"
-
-    // The outer list is in order, the inner dimension of the array corresponds to an output vector unit.
-
-    val param_list = lattice_kernel.flatten.map { x => Bits(x.toUnchecked[T])}.toSeq
-    val params = LUT[OutputType](lattice_kernel.length, units)(param_list:_*)
-
-    // needed to pass shape into readable def
-    val lattice_shape = shape
-
-    val expanded_arg = if (arg.shape.length == 3) {
-      arg
-    } else {
-      tf.expand_dims(axis=2)(arg)
-    }
-    assert(expanded_arg.shape.length == 3)
-
-
-    new Readable2D[T] {
-      override def apply(batch: I32, unit: I32): T = {
-        val residualPairs = Seq.tabulate(dimensions) { i =>
-          val x = expanded_arg(batch, i, unit).to[ResidualType]
-          Seq(x.to[AccumResidualType], 1.toFloat.to[AccumResidualType] - x.to[AccumResidualType])
-        }
-        // Compute all hypervolumes in binary counting order (000, 001, 010, 011, etc.)
-        val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(residualPairs: _*)(_ * _)
-        // Compute hypercube origin
-        // if the dimension is 0, then we optimize by setting the base index to 0 instead.
-        val base: Seq[ParameterIndex] = scala.Array.tabulate(dimensions) { x =>
-          (lattice_shape(x), PO2Opt) match {
-            case (2, true) =>
-              0.to[ParameterIndex]
-            case _ =>
-              expanded_arg(batch, x, unit).to[ParameterIndex]
-          }
-        }
-        // Get all vertices of hypercube and reverse so that these are opposite the hypervolumes
-        val corners: Seq[Seq[scala.Int]] = HypercubeLattice.allCorners(Seq.fill(dimensions)(1)).reverse
-
-        // Get flat index for each (corner + origin)
-        val indices: Seq[ParameterIndex] = corners map { c =>
-          val corner = (base zip c.map(_.to[ParameterIndex])) map { case (a, b) => a + b }
-          (corner zip strides) map { case (cc, stride) =>
-            cc * stride
-          } reduce {
-            _ + _
-          }
-        }
-
-        // Get weighted sum
-        hypervolumes.map(_.to[OutputType]).zip(indices).map {
-          case (hv, i) =>
-
-          hv * params(i, unit)
-        }.reduceTree {
-          _ + _
-        }
-      }
-
-      // A lattice goes from (batch, dim, unit) -> (batch, unit)
-      lazy val shape: Seq[I32] = Seq(arg.shape.head, units)
-    }
-  }
-
-  def Linear[T:Num:ClassTag](linear_layer_bias: Double, linear_layer_kernel: Array[Array[Double]])(arg: Readable2D[T])(implicit state: argon.State): Readable2D[T] = {
+  def Linear[T:Num](linear_layer_bias: Double, linear_layer_kernel: Array[Array[Double]])(arg: Readable2D[T])(implicit state: argon.State): Readable2D[T] = {
     tf.Dense(Array(linear_layer_bias), linear_layer_kernel)(arg)
   }
 }
@@ -141,6 +57,69 @@ object tf extends Concatenation with Blas3 {
         max(arg(index:_*), constant)
       }
       lazy val shape = arg.shape
+    }
+  }
+
+  def Transpose[T:Num](axes: Array[Int])(arg: ReadableND[T])(implicit state: argon.State): ReadableND[T] = {
+    ShuffleAxes(Seq(axes(0) -> axes(1), axes(1)->axes(0)).toMap)(arg)
+  }
+
+  def ShuffleAxes[T:Num](mapping: Map[Int, Int])(arg: ReadableND[T])(implicit state: argon.State): ReadableND[T] = {
+    // Map: Input axis => Original Axis (i.e. 3 -> 2 means accesses along axis 3 are redirected to axis 2
+    val dims = arg.shape.length
+    mapping flatMap { case (in, out) => Seq(in, out)} foreach {
+      axis => assert(axis < dims, s"Attempted to use axis $axis of $dims-Dimensional structure")}
+
+    assert(mapping.values.size == mapping.values.toSeq.distinct.size, s"Target Axes must be unique! $mapping")
+
+    new ReadableND[T] {
+      override def apply(index: dsl.I32*): T = {
+        val remapped = index.zipWithIndex map {
+          case (i, dimension) => (mapping.getOrElse(dimension, dimension), i)
+        }
+        val new_index = remapped sortWith {case (a, b) => a._1 < b._1 } map {_._2}
+        arg(new_index:_*)
+      }
+
+      override lazy val shape: Seq[dsl.I32] = {
+        val remapped = arg.shape.zipWithIndex map {
+          case (i, dimension) => (mapping.getOrElse(dimension, dimension), i)
+        }
+        remapped sortWith {case (a, b) => a._1 < b._1 } map {_._2}
+      }
+    }
+  }
+
+  def GatherV2[T:Num](axis: Int, indices: Array[Int])(arg: ReadableND[T])(implicit state: argon.State): ReadableND[T] = {
+    assert(axis < arg.shape.length, s"Requires axis $axis < ${arg.shape.length}")
+    assert(indices.nonEmpty, s"Passed an empty index into Gather")
+    val wrapped_axis = if (axis < 0) arg.shape.length - axis else axis
+
+    val lut = LUT[I32](indices.length)((indices map {I32(_)}):_*)
+
+    new ReadableND[T] {
+      override def apply(index: dsl.I32*): T = {
+        val new_index = index.zipWithIndex map {
+          case (ind, dim) =>
+            if (dim == wrapped_axis) {
+              lut(ind)
+            } else {
+              ind
+            }
+        }
+        arg(new_index:_*)
+      }
+
+      override lazy val shape: Seq[dsl.I32] = {
+        arg.shape.zipWithIndex map {
+          case (s, dim) =>
+            if (dim == wrapped_axis) {
+              I32(indices.length)
+            } else {
+              s
+            }
+        }
+      }
     }
   }
 }

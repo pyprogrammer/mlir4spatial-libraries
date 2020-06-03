@@ -60,16 +60,26 @@ trait PWLCalibration {
       lengths.head
     }
 
+//    println(s"Kernel: ${(pwl_calibration_kernel map {_.mkString(", ")}).mkString("\n")}")
     val cumsum = (pwl_calibration_kernel.transpose map {
       vec => vec.tail.scanLeft(vec.head) {_ + _}
     }).transpose map {
-      vec => LUT[T](vec.length)((vec map {x => Bits(x.toUnchecked[T])}):_*)
+      vec =>
+//        println(s"Vector: ${vec.mkString(", ")}")
+        LUT[T](vec.length)((vec map {x => Bits(x.toUnchecked[T])}):_*)
     }
     // cumsum(0) handles everything before the first keypoint and cumsum(last) handles everything after.
 
+    val degenerate_PWL_input = arg.shape(1) match {
+      case argon.Const(c) => c.value == 1
+      case _ => false
+    }
+
+    println(s"Is Degenerate: $degenerate_PWL_input")
+
     new Readable2D[T] {
       override def apply(d0: I32, d1: I32): T = {
-        val value = arg(d0, d1)
+        val value = if (degenerate_PWL_input) arg(d0, 0) else arg(d0, d1)
         val enables = (input_keypoints map { keypoint => keypoint.toUnchecked[T] < value }) ++ Seq(value >= cumsum.last(d1))
         val middle_values = ((input_keypoints zip input_keypoints.tail) zip (cumsum zip cumsum.tail)) map {
           case ((start, end), (left_val, right_val)) =>
@@ -83,7 +93,7 @@ trait PWLCalibration {
         priorityMux(enables, values)
       }
 
-      lazy val shape: Seq[I32] = Seq(arg.shape(0), units)
+      lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
     }
   }
 }

@@ -12,7 +12,7 @@ trait Lattice {
         strides(d) = strides(d-1) * dimensions(d-1)
       }
     }
-    strides
+    strides.reverse
   }
 
   def Lattice[T : Num](lattice_kernel: scala.Array[scala.Array[scala.Double]], tp: String, shape: scala.Array[scala.Int], units: Int)(arg:ReadableND[T])(implicit state:argon.State): Readable2D[T] = {

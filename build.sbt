@@ -21,3 +21,5 @@ unmanagedSourceDirectories in Compile += baseDirectory.value / "src/models/"
 libraryDependencies ++= Seq(
   "edu.stanford.cs.dawn" %% "spatial" % "1.1-SNAPSHOT"
 )
+
+Test / javaSource := baseDirectory.value / "test/"

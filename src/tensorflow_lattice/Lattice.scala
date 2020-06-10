@@ -38,7 +38,7 @@ trait Lattice {
     val expanded_arg = if (arg.shape.length == 3) {
       arg
     } else {
-      tf.expand_dims(axis=2)(arg)
+      tf.expand_dims(axis=1)(arg)
     }
     assert(expanded_arg.shape.length == 3)
 
@@ -50,7 +50,8 @@ trait Lattice {
         val residualPairs = Seq.tabulate(dimensions) { i =>
           val x = expanded_arg(batch, unit, i).to[ResidualType]
           val floored = floor(x).to[AccumResidualType]
-          Seq(floored, 1.toFloat.to[AccumResidualType] - floored)
+          val diff = x - floored
+          scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
         }
         // Compute all hypervolumes in binary counting order (000, 001, 010, 011, etc.)
         val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(residualPairs: _*)(_ * _)
@@ -78,7 +79,6 @@ trait Lattice {
         // Get weighted sum
         hypervolumes.map(_.to[OutputType]).zip(indices).map {
           case (hv, i) =>
-
             hv * params(i, unit)
         }.reduceTree {
           _ + _
@@ -89,6 +89,93 @@ trait Lattice {
       lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
     }
   }
+//
+//  def Lattice_reduction[T : Num](lattice_kernel: scala.Array[scala.Array[scala.Double]], tp: String, shape: scala.Array[scala.Int], units: Int, parallel_dims: Int = 0)(arg:ReadableND[T])(implicit state:argon.State): Readable2D[T] = {
+//
+//    type ResidualType = T
+//    type AccumResidualType = T
+//    type ParameterIndex = I32
+//    type OutputType = T
+//
+//    val dimensions = shape.length
+//    val non_parallel_dimensions = dimensions - parallel_dims
+//    val strides = ComputeStrides(shape)
+//
+//    // Ignore tp for now, always "hypercube"
+//
+//    // The outer list is in order, the inner dimension of the array corresponds to an output vector unit.
+//
+//    val param_list = lattice_kernel.flatten.map { x => Bits(x.toUnchecked[T])}.toSeq
+//    val params = LUT[OutputType](lattice_kernel.length, units)(param_list:_*)
+//
+//    // needed to pass shape into readable def
+//    val lattice_shape = shape
+//
+//    val expanded_arg = if (arg.shape.length == 3) {
+//      arg
+//    } else {
+//      tf.expand_dims(axis=2)(arg)
+//    }
+//    assert(expanded_arg.shape.length == 3)
+//
+//    // Note that Lattice_D(x) = Lattice(D-1)_lower x_D + Lattice(D-1)_upper (1 - x_D)
+//    // For simplicity, we parallelize across the largest-strided dimensions.
+//
+//    // Get all vertices of hypercube and reverse so that these are opposite the hypervolumes
+//    val corners: Seq[Seq[scala.Int]] = HypercubeLattice.allCorners(Seq.fill(parallel_dims)(1)).reverse
+//
+//    new Readable2D[T] {
+//      override def apply(batch: I32, unit: I32): T = {
+//        // compute residual pairs for last par_dims dimensions
+//        val residual_pairs = Range(non_parallel_dimensions, dimensions) map {
+//          i: Int =>
+//            val x = expanded_arg(batch, unit, I32(i)).to[ResidualType]
+//            val floored = floor(x).to[AccumResidualType]
+//            Seq(floored, 1.toFloat.to[AccumResidualType] - floored)
+//        }
+//
+////        val compute_residual_pairs = residualPairs.drop(non_parallel_dimensions)
+//
+//        // Compute all hypervolumes in binary counting order (000, 001, 010, 011, etc.)
+//        val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(residual_pairs: _*)(_ * _)
+//        // Compute hypercube origin
+//        // if the dimension is 0, then we optimize by setting the base index to 0 instead.
+//        val base: Seq[ParameterIndex] = scala.Array.tabulate(dimensions) { x =>
+//          (lattice_shape(x), HypercubeLattice.PO2Opt) match {
+//            case (2, true) =>
+//              0.to[ParameterIndex]
+//            case _ =>
+//              expanded_arg(batch, x, unit).to[ParameterIndex]
+//          }
+//        }
+//
+//        // Get flat index for each (corner + origin)
+//        val indices: Seq[ParameterIndex] = corners map { c =>
+//          val corner = (base zip c.map(_.to[ParameterIndex])) map { case (a, b) => a + b }
+//          (corner zip strides) map { case (cc, stride) =>
+//            cc * stride
+//          } reduce {
+//            _ + _
+//          }
+//        }
+//
+//        // Get weighted sum
+//        val local_sum = hypervolumes.map(_.to[OutputType]).zip(indices).map {
+//          case (hv, i) =>
+//
+//            hv * params(i, unit)
+//        }.reduceTree {
+//          _ + _
+//        }
+//
+//        // Now perform the remaining interpolation
+//
+//      }
+//
+//      // A lattice goes from (batch, dim, unit) -> (batch, unit)
+//      lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
+//    }
+//  }
 }
 
 private object HypercubeLattice {

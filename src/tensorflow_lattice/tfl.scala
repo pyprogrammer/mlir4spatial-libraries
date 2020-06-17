@@ -28,13 +28,6 @@ object tfl extends PWLCalibration with Lattice {
     }
   }
 
-  def PWLCalibration[T:Num](pwl_calibration_kernel: scala.Array[scala.Array[scala.Double]], input_keypoints: scala.Array[scala.Double])(arg:Readable2D[T])(implicit state: argon.State) = {
-    (PWL_mode match {
-      case true => PWLCalibration_mux[T] _
-      case false => PWLCalibration_Sequential[T] _
-    })(pwl_calibration_kernel, input_keypoints)(arg)
-  }
-
   def Linear[T:Num](linear_layer_bias: Double, linear_layer_kernel: Array[Array[Double]])(arg: Readable2D[T])(implicit state: argon.State): Readable2D[T] = {
     tf.Dense(Array(linear_layer_bias), linear_layer_kernel)(arg)
   }

@@ -56,7 +56,7 @@ object LatticeTest {
   0.4168449 ).take(iterations)
 }
 
-@spatial class LatticeTest extends SpatialTest {
+@spatial class LatticeTest(loop_dimensions: scala.Int) extends SpatialTest {
 
   type T = spatial.dsl.FixPt[TRUE, _2, _30]
   val dimensions = 5
@@ -76,7 +76,7 @@ object LatticeTest {
           tensorflow_lattice.tfl.Lattice(tp = "hypercube",
             shape = scala.Array(2, 2, 2, 2, 2),
             units = 1,
-            lattice_kernel = LatticeTest.lattice_kernel)(RR2(input_sram))
+            lattice_kernel = LatticeTest.lattice_kernel, num_loop_dimensions = loop_dimensions)(RR2(input_sram))
         output_sram(i) = lattice(i, I32(0))
       }
 
@@ -92,3 +92,9 @@ object LatticeTest {
     }
   }
 }
+
+class LatticeTestL0 extends LatticeTest(0)
+class LatticeTestL1 extends LatticeTest(1)
+class LatticeTestL2 extends LatticeTest(2)
+class LatticeTestL3 extends LatticeTest(3)
+class LatticeTestL4 extends LatticeTest(4)

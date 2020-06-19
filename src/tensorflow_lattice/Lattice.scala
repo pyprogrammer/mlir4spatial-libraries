@@ -40,10 +40,13 @@ trait Lattice {
     val corners: Seq[Seq[scala.Int]] = HypercubeLattice.allCorners(Seq.fill(parallel_dimensions)(1)).reverse
 
     new Readable2D[T] {
-      override def apply(batch: I32, unit: I32): T = {
+      override def apply(batch: I32, unit: I32): () => T = {
+        val instantiated_inputs = Seq.tabulate(dimensions) {
+          i => expanded_arg(batch, unit, I32(i))
+        } map { x => x() }
 
         val residualPairs = Seq.tabulate(dimensions) { i =>
-          val x = expanded_arg(batch, unit, i).to[ResidualType]
+          val x = instantiated_inputs(i)
           val floored = floor(x).to[AccumResidualType]
           val diff = x - floored
           scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
@@ -54,7 +57,7 @@ trait Lattice {
             case (2, true) =>
               0.to[ParameterIndex]
             case (shape, _) =>
-              min(expanded_arg(batch, I32(x), unit).to[ParameterIndex], I32(shape - 1))
+              min(instantiated_inputs(x).to[ParameterIndex], I32(shape - 1))
           }
         }
 
@@ -112,7 +115,7 @@ trait Lattice {
           }
         }
 
-        recursive_fill(scala.Seq.empty[ParameterIndex], argon.uconst[ParameterIndex](0))
+        () => recursive_fill(scala.Seq.empty[ParameterIndex], argon.uconst[ParameterIndex](0))
       }
 
       // A lattice goes from (batch, dim, unit) -> (batch, unit)

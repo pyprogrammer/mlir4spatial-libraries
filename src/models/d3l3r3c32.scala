@@ -117,7 +117,7 @@ object d3l3r3c32_mat_ {
       val output_sram = SRAM[T](iterations)
       val result = d3l3r3c32_(input_srams(0), input_srams(1), input_srams(2), input_srams(3), input_srams(4), input_srams(5), input_srams(6), input_srams(7), input_srams(8))
       Pipe.Foreach(iterations by 1 par iterations) { i =>
-        output_sram(i) = result(i, 0)
+        output_sram(i) = result(i, 0)()
       }
 
       output_DRAM store output_sram
@@ -144,7 +144,7 @@ object d3l3r3c32_mat_ {
       val output_sram = SRAM[T](iterations)
       val result = d3l3r3c32_mat_(input_srams(0), input_srams(1), input_srams(2), input_srams(3), input_srams(4), input_srams(5), input_srams(6), input_srams(7), input_srams(8))
       Pipe.Foreach(iterations by 1 par iterations) { i =>
-        output_sram(i) = result(i, 0)
+        output_sram(i) = result(i, 0)()
       }
 
       output_DRAM store output_sram

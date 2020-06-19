@@ -19,9 +19,10 @@ object tfl extends PWLCalibration with Lattice {
     val param_list = categorical_calibration_kernel.flatten.map { x => Bits(x.toUnchecked[T]) }.toSeq
     val params = LUT[T](categorical_calibration_kernel.length, units)(param_list:_*)
     new Readable2D[T] {
-      override def apply(d0: I32, d1: I32): T = {
-        val value = arg(d0, d1)
-        params(value.to[I32], d1)
+      override def apply(d0: I32, d1: I32): () => T = {
+        val value = arg(d0, d1)()
+        val v = params(value.to[I32], d1)
+        () => v
       }
 
       lazy val shape: Seq[I32] = arg.shape
@@ -37,8 +38,8 @@ object tf extends Concatenation with Blas3 {
 
   def Minimum[T:Num](constant: Double)(arg:ReadableND[T])(implicit state:argon.State): ReadableND[T] = {
     new ReadableND[T] {
-      override def apply(index: spatial.dsl.I32*): T = {
-        min(arg(index:_*), constant)
+      override def apply(index: spatial.dsl.I32*): () => T = {
+        () => min(arg(index:_*)(), constant)
       }
       lazy val shape = arg.shape
     }
@@ -46,8 +47,8 @@ object tf extends Concatenation with Blas3 {
 
   def Maximum[T:Num](constant: Double)(arg:ReadableND[T])(implicit state:argon.State): ReadableND[T] = {
     new ReadableND[T] {
-      override def apply(index: spatial.dsl.I32*): T = {
-        max(arg(index:_*), constant)
+      override def apply(index: spatial.dsl.I32*): () => T = {
+        () => max(arg(index:_*)(), constant)
       }
       lazy val shape = arg.shape
     }
@@ -66,7 +67,7 @@ object tf extends Concatenation with Blas3 {
     assert(mapping.values.size == mapping.values.toSeq.distinct.size, s"Target Axes must be unique! $mapping")
 
     new ReadableND[T] {
-      override def apply(index: dsl.I32*): T = {
+      override def apply(index: dsl.I32*): () => T = {
         val remapped = index.zipWithIndex map {
           case (i, dimension) => (mapping.getOrElse(dimension, dimension), i)
         }
@@ -91,7 +92,7 @@ object tf extends Concatenation with Blas3 {
     val lut = LUT[I32](indices.length)((indices map {I32(_)}):_*)
 
     new ReadableND[T] {
-      override def apply(index: dsl.I32*): T = {
+      override def apply(index: dsl.I32*): () => T = {
         val new_index = index.zipWithIndex map {
           case (ind, dim) =>
             if (dim == wrapped_axis) {

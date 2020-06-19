@@ -77,7 +77,7 @@ object LatticeTest {
             shape = scala.Array(2, 2, 2, 2, 2),
             units = 1,
             lattice_kernel = LatticeTest.lattice_kernel, num_loop_dimensions = loop_dimensions)(RR2(input_sram))
-        output_sram(i) = lattice(i, I32(0))
+        output_sram(i) = lattice(i, I32(0))()
       }
 
       output_DRAM store output_sram

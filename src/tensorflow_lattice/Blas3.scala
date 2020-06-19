@@ -18,10 +18,14 @@ trait Blas3 {
     val bias_LUT = LUT[T](bias.length)((bias map {x => Bits(x.toUnchecked[T])}):_*)
 
     new Readable2D[T] {
-      override def apply(batch: I32, dim: I32): T = {
+      override def apply(batch: I32, dim: I32): () => T = {
         // Goes from (batch x input units) x kernel^T (input x output) -> batch x output units.
         // Given C = AB, we have C_ij = Sum_k A_ik B_kj
-        bias_LUT(dim) + (Range(0, input_units) map { i => arg(batch, i) * kernel_lut(I32(i), dim)}).reduce{_+_}
+        val reads = Range(0, input_units) map { i => arg(batch, I32(i))}
+        () =>
+          {
+            bias_LUT(dim) + (Range(0, input_units) map { i => reads(i)() * kernel_lut(I32(i), dim)}).reduce{_+_}
+          }
       }
       lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(output_units))
     }

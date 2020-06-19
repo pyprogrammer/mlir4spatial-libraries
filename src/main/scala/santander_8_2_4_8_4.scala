@@ -60,7 +60,7 @@ object santander_8_2_4_8_4_ {
       val output_sram = SRAM[T](iterations)
       val result = santander_8_2_4_8_4_(as_args)
       Pipe.Foreach(iterations by 1 par iterations) { i =>
-        output_sram(i) = result(i, 0)
+        output_sram(i) = result(i, 0)()
       }
 
       output_DRAM store output_sram

@@ -41,7 +41,7 @@ object model {
       val output_sram = SRAM[T](iterations)
       val result = model(input_sram, input_sram, input_sram, input_sram, input_sram)
       Pipe.Foreach(iterations by 1) { i =>
-        output_sram(i) = result(i, 0)
+        output_sram(i) = result(i, 0)()
       }
 
       output_DRAM store output_sram

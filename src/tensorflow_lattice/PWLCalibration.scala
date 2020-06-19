@@ -53,22 +53,22 @@ trait PWLCalibration {
 //    println(s"Is Degenerate: $degenerate_PWL_input")
 
     new Readable2D[T] {
-      override def apply(d0: I32, d1: I32): T = {
-        val value = if (degenerate_PWL_input) arg(d0, I32(0)) else arg(d0, d1)
-
-        Reduce(Reg[T](0))(num_keypoints by 1 par I32(par_factor)) {
+      override def apply(d0: I32, d1: I32): () => T = {
+        val out = Reg[T](0).conflictable
+        Foreach(num_keypoints by 1 par I32(par_factor)) {
           kp_index =>
+            val staged = if (degenerate_PWL_input) arg(d0, I32(0)) else arg(d0, d1)
+            val value = staged()
             val input_kp = input_kp_LUT(kp_index)
             val next_kp = input_kp_LUT(kp_index + I32(1))
             val scaled_diff = scaled_diffs_LUT(d0, kp_index)
             val offset = value - input_kp
             val is_valid = (input_kp < value) && (value <= next_kp)
             // Relies on the fact that 0 is a vector of all 0's in type T.
-            val temp = mux(is_valid, cumsum_LUT(d1, kp_index) + offset * scaled_diff, zero[T])
-            temp
-        } {
-          _ + _
+            out.write(cumsum_LUT(d1, kp_index) + offset * scaled_diff, is_valid)
         }
+
+        () => out.value
       }
 
       lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))

@@ -8,7 +8,7 @@ object CommonConstructs {
     val intermediate = SRAM[T](arg.shape.head, arg.shape(1))
     Foreach(arg.shape.head by I32(1), arg.shape(1) by I32(1)) {
       (i, j) =>
-        intermediate(i, j) = arg(i, j)
+        intermediate(i, j) = arg(i, j)()
     }
     intermediate
   }

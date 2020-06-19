@@ -16,7 +16,7 @@ trait Concatenation {
     val breakpoints = axis_sizes.tail.scanLeft(axis_sizes.head){_ + _}
 
     new ReadableND[T] {
-      override def apply(index: spatial.dsl.I32*): T = {
+      override def apply(index: spatial.dsl.I32*): () => T = {
 
         // compute breakpoints for each respective bank. This can be phrased as a priority mux across all banks, with
         // the enable signal being whether the ub[axis] > index[axis]
@@ -83,7 +83,8 @@ trait Concatenation {
         if (pruned_enables.length == 1) {
           reads.head
         } else {
-          priorityMux(pruned_enables map {_._1}, reads)
+          val v = priorityMux(pruned_enables map {_._1}, reads map {x => x()})
+          () => v
         }
       }
 
@@ -107,7 +108,7 @@ trait Concatenation {
         arg.shape.take(axis) ++ Seq(I32(1)) ++ arg.shape.drop(axis)
       }
 
-      override def apply(index: dsl.I32*): T = {
+      override def apply(index: dsl.I32*): () => T = {
         // cut out middle dimension.
         val new_index = index.take(axis) ++ index.drop(axis + 1)
         arg(new_index:_*)

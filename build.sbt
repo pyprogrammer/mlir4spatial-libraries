@@ -15,6 +15,7 @@ scalacOptions ++= Seq("-explaintypes")
 unmanagedSourceDirectories in Compile += baseDirectory.value / "src/mlir_libraries/"
 unmanagedSourceDirectories in Compile += baseDirectory.value / "src/tensorflow_lattice/"
 unmanagedSourceDirectories in Compile += baseDirectory.value / "src/models/"
+unmanagedSourceDirectories in Compile += baseDirectory.value / "generated/"
 
 //resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository/"
 
@@ -23,3 +24,6 @@ libraryDependencies ++= Seq(
 )
 
 Test / javaSource := baseDirectory.value / "test/"
+
+testForkedParallel in IntegrationTest := true
+concurrentRestrictions in Global := Seq(Tags.limitAll(32))

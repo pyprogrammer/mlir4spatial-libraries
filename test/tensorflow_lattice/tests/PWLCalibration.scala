@@ -1,12 +1,13 @@
 package tensorflow_lattice.tests
 
 import mlir_libraries.ConversionImplicits._
+import mlir_libraries.OptimizationConfig
 import spatial.dsl._
 
 object PWLCalibrationTest {
   val iterations = 1
   val input_keypoints = scala.Array(-1, 0, 3.75, 12)
-  val pwl_kernel = scala.Array(-2.0, 0.46153846, 1.7307693, 3.8076923) map {x => scala.Array(x)}
+  val pwl_kernel = scala.Array(-2.0, 0.46153846, 1.7307693, 3.8076923) map { x => scala.Array(x) }
 
   val test_inputs = scala.Array(7.06933614, -4.12573739, 8.87435122, 3.55834566, -4.55233995,
     8.0492217, 1.03970506, -0.04190232, 7.99633263, 9.99942084,
@@ -24,6 +25,8 @@ object PWLCalibrationTest {
   type T = spatial.dsl.FixPt[TRUE, _5, _27]
   val dimensions = 1
 
+  implicit val cfg = OptimizationConfig(lattice_loops = 0, pwl_iterations = num_loops)
+
   def main(args: Array[String]): Unit = {
     val iterations = PWLCalibrationTest.iterations
     val input_DRAM = DRAM[T](iterations, dimensions)
@@ -38,7 +41,7 @@ object PWLCalibrationTest {
       val output_sram = SRAM[T](iterations)
       Pipe.Foreach(iterations by 1) { i =>
         val pwl =
-          tensorflow_lattice.tfl.PWLCalibration(pwl_calibration_kernel = PWLCalibrationTest.pwl_kernel, input_keypoints = PWLCalibrationTest.input_keypoints, num_loops = num_loops)(RR2(input_sram))
+          tensorflow_lattice.tfl.PWLCalibration(pwl_calibration_kernel = PWLCalibrationTest.pwl_kernel, input_keypoints = PWLCalibrationTest.input_keypoints)(RR2(input_sram))
         output_sram(i) = pwl(i, I32(0))()
       }
 

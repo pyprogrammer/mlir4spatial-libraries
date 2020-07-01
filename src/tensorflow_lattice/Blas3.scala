@@ -24,7 +24,7 @@ trait Blas3 {
         val reads = Range(0, input_units) map { i => arg(batch, I32(i))}
         () =>
           {
-            bias_LUT(dim) + (Range(0, input_units) map { i => reads(i)() * kernel_lut(I32(i), dim)}).reduce{_+_}
+            bias_LUT(dim) + (Range(0, input_units) map { i => reads(i)() * kernel_lut(I32(i), dim)}).reduceTree{_+_}
           }
       }
       lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(output_units))

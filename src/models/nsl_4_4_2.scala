@@ -1,11 +1,12 @@
 package models
 
 import mlir_libraries.ConversionImplicits._
-import mlir_libraries.types
-import tensorflow_lattice.{tf, tfl}
+import mlir_libraries.{OptimizationConfig, types}
+import tensorflow_lattice._
 import spatial.libdsl._
 
 object model_5 {
+  implicit val cfg = OptimizationConfig(lattice_loops = 0, pwl_iterations = 1)
   def model_5[T:Num](arg0_0: types.Readable2D[T], arg0_1: types.Readable2D[T], arg0_2: types.Readable2D[T], arg0_3: types.Readable2D[T], arg0_4: types.Readable2D[T], arg0_5: types.Readable2D[T], arg0_6: types.Readable2D[T], arg0_7: types.Readable2D[T], arg0_8: types.Readable2D[T])(implicit state: argon.State): (types.Readable2D[T]) = {
     val (v0) = tfl.PWLCalibration(input_keypoints = Array(0.000000e+00, 3.425000e+03, 1.243100e+04, 4.290800e+04), pwl_calibration_kernel = Array(Array(-4.643301e-03, 1.690523e-06, 1.456337e-06, -7.333488e-03), Array(4.641107e-03, 6.874831e-01, 7.437154e-01, 7.327408e-03), Array(-1.598650e-02, 1.368625e-02, -1.205955e-01, -1.283508e-02), Array(-1.526223e-02, -4.043069e-01, -7.215217e-01, -1.429000e-02)))(arg0_0)
     val (v1) = tfl.CategoricalCalibration(categorical_calibration_kernel = Array(Array(-4.570226e-02, -9.993782e-07, -6.389803e-08, -1.427765e-05), Array(-3.030496e-02, -1.598201e-02, -4.247625e-02, -5.729316e-07), Array(4.105274e-01, -9.279776e-03, -1.613230e-02, -3.043344e-02)))(arg0_1)

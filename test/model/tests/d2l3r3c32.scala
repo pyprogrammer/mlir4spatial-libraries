@@ -1,4 +1,4 @@
-package models
+package model.tests
 
 import mlir_libraries.ConversionImplicits._
 import mlir_libraries.{OptimizationConfig, types}
@@ -53,12 +53,13 @@ object d2l3r3c32_ {
   }
 }
 
-@spatial class d2l3r3c32(lattice_seq: Int, pwl_loops: Int) extends SpatialApp {
+@spatial class d2l3r3c32(lattice_seq: Int, pwl_loops: Int) extends SpatialTest {
   import spatial.dsl._
   type T = spatial.dsl.FixPt[TRUE, _6, _10]
   val dimensions = 9
   val iterations = 1000
-  implicit val config = mlir_libraries.OptimizationConfig(lattice_seq, pwl_loops)
+
+  implicit val cfg = OptimizationConfig(lattice_loops = lattice_seq, pwl_iterations = pwl_loops)
   def main(args: Array[String]) : Unit = {
     val input_DRAM = DRAM[T](dimensions, iterations)
     val output_DRAM = DRAM[T](iterations)
@@ -77,15 +78,13 @@ object d2l3r3c32_ {
 
       output_DRAM store output_sram
     }
-    println(getMem(output_DRAM))
+    assert(Bit(true), "Compiles and runs")
   }
 }
 
-object d2l3r3c32_L0P1 extends d2l3r3c32(0, 1)
-object d2l3r3c32_L0P2 extends d2l3r3c32(0, 2)
-object d2l3r3c32_L1P1 extends d2l3r3c32(1, 1)
-object d2l3r3c32_L1P2 extends d2l3r3c32(1, 2)
-object d2l3r3c32_L2P1 extends d2l3r3c32(2, 1)
-object d2l3r3c32_L2P2 extends d2l3r3c32(2, 2)
-object d2l3r3c32_L3P2 extends d2l3r3c32(3, 2)
-object d2l3r3c32_L4P2 extends d2l3r3c32(4, 2)
+class d2l3r3c32_L0P1 extends d2l3r3c32(0, 1)
+class d2l3r3c32_L0P2 extends d2l3r3c32(0, 2)
+class d2l3r3c32_L1P1 extends d2l3r3c32(1, 1)
+class d2l3r3c32_L1P2 extends d2l3r3c32(1, 2)
+class d2l3r3c32_L2P1 extends d2l3r3c32(2, 1)
+class d2l3r3c32_L2P2 extends d2l3r3c32(2, 2)

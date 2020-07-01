@@ -2,6 +2,7 @@ package tensorflow_lattice.tests
 
 import spatial.dsl._
 import mlir_libraries.ConversionImplicits._
+import mlir_libraries.OptimizationConfig
 
 object LatticeTest {
   val iterations = 20
@@ -61,6 +62,7 @@ object LatticeTest {
   type T = spatial.dsl.FixPt[TRUE, _2, _30]
   val dimensions = 5
 
+  implicit val cfg = OptimizationConfig(lattice_loops = loop_dimensions, pwl_iterations = 1)
   def main(args: Array[String]): Unit = {
     val iterations = LatticeTest.iterations
     val input_DRAM = DRAM[T](iterations, dimensions)
@@ -76,7 +78,7 @@ object LatticeTest {
           tensorflow_lattice.tfl.Lattice(tp = "hypercube",
             shape = scala.Array(2, 2, 2, 2, 2),
             units = 1,
-            lattice_kernel = LatticeTest.lattice_kernel, num_loop_dimensions = loop_dimensions)(RR2(input_sram))
+            lattice_kernel = LatticeTest.lattice_kernel)(RR2(input_sram))
         output_sram(i) = lattice(i, I32(0))()
       }
 

@@ -8,3 +8,4 @@ target/
 tf-src/lattice-nids/output/
 out*/
 tf-src/dnn-nids/DNN-NIDS_LUTs/
+test/generated/

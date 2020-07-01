@@ -2,11 +2,13 @@ package models
 
 import mlir_libraries.CommonConstructs._
 import mlir_libraries.ConversionImplicits._
+import mlir_libraries.OptimizationConfig
 import spatial.libdsl._
 import tensorflow_lattice.{tf, tfl}
 
 object nsl_kdd_model_8_4_4_mat {
   import mlir_libraries.types
+  implicit val cfg = OptimizationConfig(lattice_loops = 0, pwl_iterations = 1)
   def apply[T:Num](arg0_0: types.Readable2D[T], arg0_1: types.Readable2D[T], arg0_2: types.Readable2D[T], arg0_3: types.Readable2D[T], arg0_4: types.Readable2D[T], arg0_5: types.Readable2D[T], arg0_6: types.Readable2D[T], arg0_7: types.Readable2D[T], arg0_8: types.Readable2D[T])(implicit state: argon.State): (types.Readable2D[T]) = {
     val (v0) = tfl.PWLCalibration(input_keypoints = Array(0.000000e+00, 7.150000e+02, 2.596000e+03, 5.061000e+03, 9.048000e+03, 1.407800e+04, 2.734100e+04, 4.290800e+04), pwl_calibration_kernel = Array(Array(-3.792138e-04, -4.349485e-04, -4.324347e-06, -6.356174e-04), Array(6.804329e-02, 7.769001e-02, 8.205299e-02, 7.398200e-02), Array(-2.874391e-02, -9.452063e-03, -4.869339e-03, -1.971202e-02), Array(-5.349746e-02, -3.749122e-02, -3.048443e-02, -5.111071e-02), Array(-2.358068e-02, -3.629585e-02, -2.950049e-02, -2.903679e-02), Array(-3.015240e-02, -4.692546e-02, -4.307600e-02, -3.778155e-02), Array(-3.986964e-02, -4.439420e-02, -4.063463e-02, -5.161719e-02), Array(-1.794359e-02, -1.596599e-02, -1.293742e-02, -2.507703e-02)))(arg0_0)
     val (v1) = tfl.CategoricalCalibration(categorical_calibration_kernel = Array(Array(-1.215394e-05, -1.347726e-05, -3.182478e-02, -3.807019e-02), Array(-1.872423e-02, -1.656942e-02, -2.280914e-02, -3.482063e-02), Array(-2.463726e-02, -2.717778e-06, -4.500541e-07, -5.260408e-03)))(arg0_1)
@@ -42,6 +44,7 @@ object nsl_kdd_model_8_4_4_mat {
 
 object nsl_kdd_model_8_4_4_nomat {
   import mlir_libraries.types
+  implicit val cfg = OptimizationConfig(lattice_loops = 0, pwl_iterations = 1)
   def apply[T:Num](arg0_0: types.Readable2D[T], arg0_1: types.Readable2D[T], arg0_2: types.Readable2D[T], arg0_3: types.Readable2D[T], arg0_4: types.Readable2D[T], arg0_5: types.Readable2D[T], arg0_6: types.Readable2D[T], arg0_7: types.Readable2D[T], arg0_8: types.Readable2D[T])(implicit state: argon.State): (types.Readable2D[T]) = {
     val (v0) = tfl.PWLCalibration(input_keypoints = Array(0.000000e+00, 7.150000e+02, 2.596000e+03, 5.061000e+03, 9.048000e+03, 1.407800e+04, 2.734100e+04, 4.290800e+04), pwl_calibration_kernel = Array(Array(-3.792138e-04, -4.349485e-04, -4.324347e-06, -6.356174e-04), Array(6.804329e-02, 7.769001e-02, 8.205299e-02, 7.398200e-02), Array(-2.874391e-02, -9.452063e-03, -4.869339e-03, -1.971202e-02), Array(-5.349746e-02, -3.749122e-02, -3.048443e-02, -5.111071e-02), Array(-2.358068e-02, -3.629585e-02, -2.950049e-02, -2.903679e-02), Array(-3.015240e-02, -4.692546e-02, -4.307600e-02, -3.778155e-02), Array(-3.986964e-02, -4.439420e-02, -4.063463e-02, -5.161719e-02), Array(-1.794359e-02, -1.596599e-02, -1.293742e-02, -2.507703e-02)))(arg0_0)
     val (v1) = tfl.CategoricalCalibration(categorical_calibration_kernel = Array(Array(-1.215394e-05, -1.347726e-05, -3.182478e-02, -3.807019e-02), Array(-1.872423e-02, -1.656942e-02, -2.280914e-02, -3.482063e-02), Array(-2.463726e-02, -2.717778e-06, -4.500541e-07, -5.260408e-03)))(arg0_1)

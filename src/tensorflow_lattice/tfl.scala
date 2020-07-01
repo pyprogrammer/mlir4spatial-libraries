@@ -16,11 +16,17 @@ object tfl extends PWLCalibration with Lattice {
       assert(lengths.length == 1, f"Found multiple possible number of units for Categorical Calibration. Expected 1. ${lengths}")
       lengths.head
     }
+
+    val degenerate_PWL_input = arg.shape(1) match {
+      case argon.Const(c) => c.value == 1
+      case _ => false
+    }
+
     val param_list = categorical_calibration_kernel.flatten.map { x => Bits(x.toUnchecked[T]) }.toSeq
     val params = LUT[T](categorical_calibration_kernel.length, units)(param_list:_*)
     new Readable2D[T] {
       override def apply(d0: I32, d1: I32): () => T = {
-        val value = arg(d0, d1)()
+        val value = if (degenerate_PWL_input) { arg(d0, I32(0))() } else { arg(d0, d1)() }
         val v = params(value.to[I32], d1)
         () => v
       }

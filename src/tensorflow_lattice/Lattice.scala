@@ -6,13 +6,14 @@ import spatial.libdsl._
 trait Lattice {
 
   def Lattice[T: Num](lattice_kernel: scala.Array[scala.Array[scala.Double]], tp: String, shape: scala.Array[scala.Int],
-                       units: Int, num_loop_dimensions: Int = 0
-                     )(arg: ReadableND[T])(implicit state: argon.State): Readable2D[T] = {
+                       units: Int)(arg: ReadableND[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig): Readable2D[T] = {
 
     type ResidualType = T
     type AccumResidualType = T
     type ParameterIndex = I32
     type OutputType = T
+
+    val num_loop_dimensions = config.lattice_loops
 
     val dimensions = shape.length
     val parallel_dimensions = dimensions - num_loop_dimensions

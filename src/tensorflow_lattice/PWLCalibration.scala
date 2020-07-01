@@ -4,9 +4,10 @@ import mlir_libraries.types.Readable2D
 import spatial.libdsl._
 
 trait PWLCalibration {
-  def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: scala.Array[scala.Array[scala.Double]], input_keypoints: scala.Array[scala.Double], num_loops: Int = 1)(arg: Readable2D[T])(implicit state: argon.State) = {
+  def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: scala.Array[scala.Array[scala.Double]], input_keypoints: scala.Array[scala.Double])(arg: Readable2D[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig) = {
     // kernel is phrased as bias :: deltas.
     // however, we wish to use a priority mux instead, so we first compute the running sum.
+    val num_loops = config.pwl_iterations
 
     val units = {
       val lengths = (pwl_calibration_kernel map {_.length}).distinct

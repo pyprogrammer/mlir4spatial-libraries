@@ -47,7 +47,7 @@ object ConversionImplicits {
   }
 
   @stateful implicit def N2R[T](rm: ReadableND[T]): Readable2D[T] = {
-    assert(rm.shape.length == 2, f"Cannot convert an ND to 2D readable. (N = ${rm.shape.length})")
+    assert(rm.shape.length == 2, f"Cannot convert an ND to 2D readable. (N = ${rm.shape.length}, shape = ${rm.shape})")
     new Readable2D[T] {
       override def apply(d0: I32, d1: I32): () => T = rm(d0, d1)
       override lazy val shape: Seq[I32] = rm.shape

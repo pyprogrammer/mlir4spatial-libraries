@@ -141,11 +141,11 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
         utils.checkpoint("CoprocArbiterActive")
         // dequeues from all of the fifoes which have an element
         val has_elements = input_fifos map {
-          bundle => bundle map {
-            !_.isEmpty
+          bundle => !(bundle map {
+            _.isEmpty
           } reduceTree {
-            _ && _
-          }
+            _ || _
+          })
         }
 
         // check if output is almost full. Don't enqueue if that's the case.
@@ -219,34 +219,34 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
   // Process function takes an input read from a fifo and writes to the corresponding output fifo.
 
-  // Interface for "using" the coprocessor
-  def apply(input: Seq[In_T]): Seq[Out_T] = {
-    assert(!frozen)
-    // create new input and output queues
-    println(s"Inputs: ${input.mkString(", ")}")
-    assert(input.size == input_arity, f"Expected Input Arity:  $input_arity, called with arity: ${input.size}")
+  class CoprocessorInterface(input_stream: Seq[FIFO[In_T]], output_stream: Seq[FIFO[Out_T]]) {
+    def enq(input: Seq[In_T]): Void = {
+      'CoprocessorInput.Stream {
+        utils.checkpoint("PreEnqueue")
 
-    val new_input_fifo_set = input_fifos(cnt)
-    val output_fifo_set = output_fifos(cnt)
+        (input_stream zip input) foreach {
+          case (fifo, in) => fifo.enq(in)
+        }
+      }
+    }
+
+    def deq(): Seq[Out_T] = {
+      val result = Range(0, output_arity) map { _ => Reg[Out_T] }
+      'CoprocessorOutput.Stream {
+        (output_stream zip result) foreach {
+          case (fifo, res) =>
+            res := fifo.deq
+        }
+      }
+
+      result map {
+        _.value
+      }
+    }
+  }
+
+  def interface: CoprocessorInterface = {
     cnt += 1
-
-    val result = Range(0, output_arity) map {_ => Reg[Out_T]}
-
-    'CoprocessorInput.Stream {
-      utils.checkpoint("PreEnqueue")
-
-      (new_input_fifo_set zip input) foreach {
-        case (fifo, in) => fifo.enq(in)
-      }
-    }
-
-    'CoprocessorOutput.Stream {
-      (output_fifo_set zip result) foreach {
-        case (fifo, res) =>
-          res := fifo.deq
-      }
-    }
-
-    result map {_.value}
+    new CoprocessorInterface(input_fifos(cnt - 1), output_fifos(cnt - 1))
   }
 }

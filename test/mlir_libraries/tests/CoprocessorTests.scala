@@ -11,7 +11,7 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope, prealloc: scala.Int)
 }
 
 @spatial class CoprocessorTests(threads: scala.Int, workers: scala.Int) extends SpatialTest {
-  val test_size = 16
+  val test_size = 32
 
   override def main(args: Array[String]): Void = {
 
@@ -26,20 +26,56 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope, prealloc: scala.Int)
         } {
           proc =>
             // split space
-            Range(0, threads) foreach {
-              block_id =>
-                val block_size = test_size / threads
-                val start = block_size * block_id
-                val end = start + block_size
-                val proc_id = block_id % workers
-                Foreach(0 until test_size, start until end) {
-                  case (i, j) =>
-                    sram(i, j) = proc(proc_id)(Seq(i, j)).head
-                }
+            Stream {
+              Range(0, threads) foreach {
+                block_id =>
+                  val block_size = test_size / threads
+                  val start = block_size * block_id
+                  val end = start + block_size
+                  val proc_id = block_id % workers
+                  val interface = proc(proc_id).interface
+                  Foreach(0 until test_size, start until end) {
+                    case (i, j) =>
+                      interface.enq(Seq(i, j))
+                  }
+                  Foreach(0 until test_size, start until end) {
+                    case (i, j) =>
+                      sram(i, j) = interface.deq().head
+                  }
+              }
             }
         }
         output store sram
       }
+    }
+
+    val result = getMatrix(output)
+    (0 until test_size) foreach {
+      i =>
+        (0 until test_size) foreach {
+          j =>
+            assert((i + j + I32(1)) === result(i, j))
+        }
+    }
+
+    writeCSV2D(result, "result.csv")
+  }
+}
+
+@spatial class CoprocessorRefs(threads: scala.Int, workers: scala.Int) extends SpatialTest {
+  val test_size = 32
+
+  override def main(args: Array[String]): Void = {
+
+    val output: DRAM2[I32] = DRAM[I32](test_size, test_size)
+
+    Accel {
+      val sram: SRAM2[I32] = SRAM[I32](test_size, test_size)
+      Foreach(0 until test_size, 0 until test_size par I32(workers)) {
+        (i, j) =>
+          sram(i, j) = i + j + I32(1)
+      }
+      output store sram
     }
 
     val result = getMatrix(output)
@@ -58,4 +94,8 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope, prealloc: scala.Int)
 }
 
 class CoprocessorTest1 extends CoprocessorTests(1, 1)
-class CoprocessorTest4 extends CoprocessorTests(4, 2)
+class CoprocessorTest4 extends CoprocessorTests(4, 1)
+class CoprocessorTest8 extends CoprocessorTests(8, 1)
+class CoprocessorTest4Full extends CoprocessorTests(4, 4)
+
+class CoprocessorRef1 extends CoprocessorRefs(1, 1)

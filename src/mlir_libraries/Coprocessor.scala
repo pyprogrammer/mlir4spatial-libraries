@@ -46,14 +46,17 @@ class CoprocessorScope(implicit s: argon.State) {
 
 object CoprocessorScope {
   @api def apply[T](init: CoprocessorScope => T)(func: T => Any)(implicit state: argon.State): Void = {
-    Stream {
-      val scope = new CoprocessorScope()
-      val initialized = init(scope)
-      Pipe {
-        func(initialized)
-        scope.kill()
-      }
-      scope.instantiate()
+    val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill")
+
+    Stream(breakWhen = kill).Foreach(*) {
+      _ =>
+        val scope = new CoprocessorScope()
+        val initialized = init(scope)
+        Pipe {
+          func(initialized)
+          kill := 1.to[Bit]
+        }
+        scope.instantiate()
     }
   }
 }
@@ -69,8 +72,8 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
   coprocessorScope.register(instantiate)
 
   protected val SCALE_FACTOR = 4
-  protected val INPUT_FIFO_DEPTH = 2
-  protected val OUTPUT_FIFO_DEPTH = 2
+  protected val INPUT_FIFO_DEPTH = 16
+  protected val OUTPUT_FIFO_DEPTH = 16
 
   // Coprocessors have input fifo sets, output fifo sets, and a control stream.
   // Assume for now that all inputs are of the same type, and all outputs are of the same type.
@@ -164,6 +167,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
           case (bundle, en) =>
             bundle map {
               fifo => fifo.deq(en)
+                // (value, valid) = fifo.deq
             }
         }
 
@@ -181,39 +185,28 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
       }
     }
 
-    val processor_break: Reg[Bit] = Reg[Bit](false, "processor_break")
-    'Coprocessor.Stream(breakWhen = processor_break).Foreach(*) {
+    'Coprocessor.Stream.Foreach(*) {
       _ =>
         utils.checkpoint("CoprocActive")
-        val empty_queue = central_input_fifos map {
-          _.isEmpty
-        } reduceTree {
-          _ || _
+
+        val inputs = central_input_fifos map {
+          _.deq
         }
-        ifThenElse(
-          empty_queue, () => {
-            // Do nothing
-          }, () => {
-            val inputs = central_input_fifos map {
-              _.deq
-            }
-            val destination = central_output_indices.deq
-            val results = execute(inputs)
+        val destination = central_output_indices.deq
+        val results = execute(inputs)
 
-            // writeback to proper fifo.
-            output_fifos.zipWithIndex foreach {
-              case (output_bundle, output_index) =>
-                val write_enable = I32(output_index) === destination
-                (output_bundle zip results) foreach {
-                  case (fifo, result) =>
-                    fifo.enq(result, write_enable)
-                }
+        // writeback to proper fifo.
+        output_fifos.zipWithIndex foreach {
+          case (output_bundle, output_index) =>
+            val write_enable = I32(output_index) === destination
+            (output_bundle zip results) foreach {
+              case (fifo, result) =>
+                fifo.enq(result, write_enable)
             }
-          }
-        )
-
-        // check on break
-        utils.MaybeRead(processor_command, processor_break)
+        }
+//
+//        // check on break
+//        utils.MaybeRead(processor_command, processor_break)
     }
   }
 

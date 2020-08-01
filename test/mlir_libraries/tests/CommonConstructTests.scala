@@ -143,7 +143,7 @@ class LatticeWithMaterializeTestL4 extends LatticeWithMaterializeTest(4)
             }
             }
           }
-          scope.kill()
+//          scope.kill()
         }
 
 

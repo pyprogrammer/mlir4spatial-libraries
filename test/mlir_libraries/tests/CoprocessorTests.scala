@@ -26,14 +26,14 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope, prealloc: scala.Int)
         } {
           proc =>
             // split space
-            Stream {
-              Range(0, threads) foreach {
-                block_id =>
-                  val block_size = test_size / threads
-                  val start = block_size * block_id
-                  val end = start + block_size
-                  val proc_id = block_id % workers
-                  val interface = proc(proc_id).interface
+            Range(0, threads) foreach {
+              block_id =>
+                val block_size = test_size / threads
+                val start = block_size * block_id
+                val end = start + block_size
+                val proc_id = block_id % workers
+                val interface = proc(proc_id).interface
+                Stream {
                   Foreach(0 until test_size, start until end) {
                     case (i, j) =>
                       interface.enq(Seq(i, j))
@@ -42,8 +42,8 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope, prealloc: scala.Int)
                     case (i, j) =>
                       sram(i, j) = interface.deq().head
                   }
+                }
               }
-            }
         }
         output store sram
       }
@@ -94,7 +94,8 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope, prealloc: scala.Int)
 }
 
 class CoprocessorTest1 extends CoprocessorTests(1, 1)
-class CoprocessorTest4 extends CoprocessorTests(4, 1)
+class CoprocessorTest2 extends CoprocessorTests(2, 1)
+class CoprocessorTest4 extends CoprocessorTests(4, 2)
 class CoprocessorTest8 extends CoprocessorTests(8, 1)
 class CoprocessorTest4Full extends CoprocessorTests(4, 4)
 

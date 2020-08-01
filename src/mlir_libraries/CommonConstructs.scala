@@ -129,7 +129,7 @@ object CommonConstructs {
     val input_fifo = Range(0, dim, 1) map { _ => FIFO[I32](I32(32)) }
 
     coprocessorScope.register(
-      command_fifo => {
+      () => {
         Sequential {
           Parallel {
             Foreach(size by I32(1)){ i => valid(i) = 0.to[Bit] }
@@ -169,8 +169,6 @@ object CommonConstructs {
                     }
                   )
                 })
-
-                MaybeRead(command_fifo, b)
               }
           }
           utils.checkpoint("StreamFinish")

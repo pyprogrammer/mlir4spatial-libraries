@@ -3,7 +3,7 @@ package mlir_libraries.tests
 import mlir_libraries.{CoprocessorScope, utils}
 import spatial.dsl._
 
-class TestProcessor(scope: mlir_libraries.CoprocessorScope, prealloc: scala.Int) extends mlir_libraries.Coprocessor[I32, I32](2, 1, prealloc) {
+class TestProcessor(scope: mlir_libraries.CoprocessorScope) extends mlir_libraries.Coprocessor[I32, I32](2, 1) {
   override def coprocessorScope: CoprocessorScope = scope
   override def execute(inputs: Seq[I32]): Seq[I32] = {
     Seq((inputs reduceTree { _ + _ }) + I32(1))
@@ -22,31 +22,35 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope, prealloc: scala.Int)
       Pipe {
         mlir_libraries.CoprocessorScope {
           scope =>
-            Range(0, workers) map {_ => new TestProcessor(scope, threads / workers)}
+            Range(0, workers) map {_ => new TestProcessor(scope)}
         } {
           proc =>
             // split space
-            Range(0, threads) foreach {
-              block_id =>
-                val block_size = test_size / threads
-                val start = block_size * block_id
-                val end = start + block_size
-                val proc_id = block_id % workers
-                val interface = proc(proc_id).interface
-                Stream {
-                  Foreach(0 until test_size, start until end) {
-                    case (i, j) =>
-                      interface.enq(Seq(i, j))
-                  }
-                  Foreach(0 until test_size, start until end) {
-                    case (i, j) =>
-                      sram(i, j) = interface.deq().head
-                  }
-                }
+            Stream {
+              Range(0, threads) foreach {
+                block_id =>
+                  val block_size = test_size / threads
+                  val start = block_size * block_id
+                  val end = start + block_size
+                  val proc_id = block_id % workers
+                  val interface = proc(proc_id).interface
+                    Foreach(0 until test_size, start until end) {
+                      case (i, j) =>
+                        interface.enq(Seq(i, j))
+                    }
+                    Foreach(0 until test_size, start until end) {
+                      case (i, j) =>
+                        sram(i, j) = interface.deq().head
+                    }
+                  System.out.println(s"Stack Inside: ${implicitly[argon.State].bundleStack}")
               }
+            }
         }
         output store sram
+        System.out.println(s"Stack Post-Pipe: ${implicitly[argon.State].bundleStack}")
       }
+      System.out.println(s"Stack At End: ${implicitly[argon.State].bundleStack}")
+
     }
 
     val result = getMatrix(output)

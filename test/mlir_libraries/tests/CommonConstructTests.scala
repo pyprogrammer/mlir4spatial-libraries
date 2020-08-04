@@ -106,69 +106,69 @@ object LatticeWithMaterializeTest {
 
 class LatticeWithMaterializeTestL1 extends LatticeWithMaterializeTest(1)
 class LatticeWithMaterializeTestL4 extends LatticeWithMaterializeTest(4)
-
-@spatial class LatticeWithLazyMaterializeTest(num_parallel_outputs: scala.Int) extends SpatialTest {
-  override val compileArgs = "--noModifyStream"
-
-  type T = spatial.dsl.FixPt[TRUE, _2, _30]
-  val dimensions = 5
-
-  implicit val cfg = OptimizationConfig()
-  def main(args: Array[String]): Unit = {
-    val iterations = LatticeWithMaterializeTest.iterations
-    val input_DRAM = DRAM[T](iterations, dimensions)
-    setMem(input_DRAM, Array((LatticeWithMaterializeTest.test_inputs map { argon.uconst[T](_) }):_*))
-    val output_DRAM = Range(0, num_parallel_outputs, 1) map {
-      _ => DRAM[T](I32(iterations))
-    }
-
-    Accel {
-      Stream {
-        implicit val scope = new mlir_libraries.CoprocessorScope
-        val input_sram = SRAM[T](iterations, dimensions)
-        input_sram load input_DRAM(0 :: iterations, 0 :: dimensions)
-        val output_sram: IndexedSeq[SRAM1[T]] = Range(0, num_parallel_outputs, 1) map {_ => SRAM[T](iterations)}
-
-        val lattice =
-          tensorflow_lattice.tfl.Lattice(tp = "hypercube",
-            shape = scala.Array(2, 2, 2, 2, 2),
-            units = 1,
-            lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(RR2(input_sram))
-        val materialized = mlir_libraries.CommonConstructs.LazyMaterialize2(lattice)
-
-        Sequential {
-          Pipe.Foreach(iterations by 1) { i =>
-            output_sram map { s => {
-              s(i) = materialized(i, I32(0))()
-            }
-            }
-          }
-//          scope.kill()
-        }
-
-
-        (output_DRAM zip output_sram) foreach {
-          case (d, s) => d store s
-        }
-
-        scope.instantiate()
-      }
-    }
-    val golden = Array[T]((LatticeWithMaterializeTest.golden map { argon.uconst[T](_) }):_*)
-    val outputs = output_DRAM map {x => getMem(x)}
-    (0 until iterations) foreach {
-      i =>
-        outputs.zipWithIndex foreach {
-          case(output, index) =>
-            val diff = abs(golden(i) - output(i))
-            println(r"Reference: ${golden(i)}, received: ${output(i)}")
-//            assert(diff < 1e-3, r"Expected (${golden(i)}), got (${output(i)}) < 1e-3 at output (${i}), replica $index")
-        }
-    }
-    assert(Bit(true))
-  }
-}
-
-class LatticeWithLazyMaterializeTestL1 extends LatticeWithLazyMaterializeTest(1)
-class LatticeWithLazyMaterializeTestL4 extends LatticeWithLazyMaterializeTest(4)
+//
+//@spatial class LatticeWithLazyMaterializeTest(num_parallel_outputs: scala.Int) extends SpatialTest {
+//  override val compileArgs = "--noModifyStream"
+//
+//  type T = spatial.dsl.FixPt[TRUE, _2, _30]
+//  val dimensions = 5
+//
+//  implicit val cfg = OptimizationConfig()
+//  def main(args: Array[String]): Unit = {
+//    val iterations = LatticeWithMaterializeTest.iterations
+//    val input_DRAM = DRAM[T](iterations, dimensions)
+//    setMem(input_DRAM, Array((LatticeWithMaterializeTest.test_inputs map { argon.uconst[T](_) }):_*))
+//    val output_DRAM = Range(0, num_parallel_outputs, 1) map {
+//      _ => DRAM[T](I32(iterations))
+//    }
+//
+//    Accel {
+//      Stream {
+//        implicit val scope = new mlir_libraries.CoprocessorScope
+//        val input_sram = SRAM[T](iterations, dimensions)
+//        input_sram load input_DRAM(0 :: iterations, 0 :: dimensions)
+//        val output_sram: IndexedSeq[SRAM1[T]] = Range(0, num_parallel_outputs, 1) map {_ => SRAM[T](iterations)}
+//
+//        val lattice =
+//          tensorflow_lattice.tfl.Lattice(tp = "hypercube",
+//            shape = scala.Array(2, 2, 2, 2, 2),
+//            units = 1,
+//            lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(RR2(input_sram))
+//        val materialized = mlir_libraries.CommonConstructs.LazyMaterialize2(lattice)
+//
+//        Sequential {
+//          Pipe.Foreach(iterations by 1) { i =>
+//            output_sram map { s => {
+//              s(i) = materialized(i, I32(0))()
+//            }
+//            }
+//          }
+////          scope.kill()
+//        }
+//
+//
+//        (output_DRAM zip output_sram) foreach {
+//          case (d, s) => d store s
+//        }
+//
+//        scope.instantiate()
+//      }
+//    }
+//    val golden = Array[T]((LatticeWithMaterializeTest.golden map { argon.uconst[T](_) }):_*)
+//    val outputs = output_DRAM map {x => getMem(x)}
+//    (0 until iterations) foreach {
+//      i =>
+//        outputs.zipWithIndex foreach {
+//          case(output, index) =>
+//            val diff = abs(golden(i) - output(i))
+//            println(r"Reference: ${golden(i)}, received: ${output(i)}")
+////            assert(diff < 1e-3, r"Expected (${golden(i)}), got (${output(i)}) < 1e-3 at output (${i}), replica $index")
+//        }
+//    }
+//    assert(Bit(true))
+//  }
+//}
+//
+//class LatticeWithLazyMaterializeTestL1 extends LatticeWithLazyMaterializeTest(1)
+//class LatticeWithLazyMaterializeTestL4 extends LatticeWithLazyMaterializeTest(4)
 

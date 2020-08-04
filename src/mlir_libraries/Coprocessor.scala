@@ -4,7 +4,7 @@ import forge.tags.api
 import spatial.libdsl._
 import spatial.metadata.memory._
 
-class CoprocessorScope(implicit s: argon.State) {
+class CoprocessorScope(val scope_id: scala.Int)(implicit s: argon.State) {
   type T = () => Any
   val state: argon.State = s
 
@@ -19,14 +19,26 @@ class CoprocessorScope(implicit s: argon.State) {
       coprocessors foreach {x => x()}
     }
   }
+
+  def escape[T](thunk: => T): T = {
+    val bundle = state.bundleStack(scope_id)
+    val (result, newBundle)  = state.WithScope({
+      val tmp = thunk
+      tmp
+    }, bundle)
+    // store the new bundle back
+    state.bundleStack.update(scope_id, newBundle)
+    result
+  }
 }
 
 object CoprocessorScope {
   @api def apply[T](init: CoprocessorScope => T)(func: T => Any): Void = {
     val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill")
+    val scope_id: Int = state.bundleStack.size - 1
     Stream(breakWhen = kill).Foreach(*) {
       _ =>
-        val scope = new CoprocessorScope()
+        val scope = new CoprocessorScope(scope_id)
         val initialized = init(scope)
         Pipe {
           func(initialized)
@@ -41,7 +53,7 @@ object CoprocessorScope {
 // The coprocessor scope defines the control stream.
 // Todo(pyprogrammer): prealloc should be removed once we figure out how to stash the argon.State
 //   We should be able to directly create new FIFOs in the parent scope.
-abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_arity: Int, prealloc: Int) {
+abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_arity: Int) {
   def coprocessorScope: CoprocessorScope
   implicit val state: argon.State = coprocessorScope.state
 
@@ -62,29 +74,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
   // Override this for the core inner function.
   def execute(inputs: Seq[In_T]): Seq[Out_T]
-
-  var cnt = 0
-  Range(0, prealloc) foreach {
-    pre =>
-      val new_input_fifo_set = Range(0, input_arity) map {
-        i =>
-          val f = FIFO[In_T](I32(INPUT_FIFO_DEPTH))
-          f.explicitName = f"InputFifo${pre}_$i"
-          f
-      }
-      input_fifos.append(new_input_fifo_set)
-
-      id_fifos.append(FIFO[I32](I32(INPUT_FIFO_DEPTH)))
-      id_fifos.last.explicitName = f"IdentityFifo$pre"
-
-      val output_fifo_set = Range(0, output_arity) map {
-        i =>
-          val f = FIFO[Out_T](I32(OUTPUT_FIFO_DEPTH))
-          f.explicitName = f"OutputFifo${pre}_$i"
-          f
-      }
-      output_fifos.append(output_fifo_set)
-  }
 
 
   def instantiate(): Void = {
@@ -114,18 +103,22 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
         val dequeued = (input_fifos zip should_dequeue) map {
           case (bundle, en) =>
             bundle map {
-              fifo => fifo.deq(en)
+              fifo => (fifo.deq(en), en)
             }
         }
 
-        (dequeued zip should_dequeue) foreach {
-          case (bundle, en) =>
-            (bundle zip central_input_fifos) foreach {
-              case (value, fifo) =>
-                fifo.enq(value, en)
+        val reduced = dequeued.transpose map {
+          signals =>
+            signals reduceTree {
+              case ((v1, en1), (v2, en2)) =>
+                (mux(en1, v1, v2), en1 || en2)
             }
         }
 
+        (reduced zip central_input_fifos) foreach {
+          case ((value, _), fifo) =>
+            fifo.enq(value)
+        }
         central_output_indices.enq(next_fifo)
         }
     }
@@ -166,9 +159,34 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
     }
   }
 
+  var cnt = 0
   def interface: CoprocessorInterface = {
     val id = cnt
     cnt += 1
-    new CoprocessorInterface(input_fifos(id), output_fifos(id), id_fifos(id), I32(id))
+
+    val io = coprocessorScope.escape {
+      val new_input_fifo_set = Range(0, input_arity) map {
+        i =>
+          val f = FIFO[In_T](I32(INPUT_FIFO_DEPTH))
+          f.explicitName = f"InputFifo${id}_$i"
+          f
+      }
+      input_fifos.append(new_input_fifo_set)
+
+      val id_fifo = FIFO[I32](I32(INPUT_FIFO_DEPTH))
+      id_fifo.explicitName = f"IdentityFifo$id"
+      id_fifos.append(id_fifo)
+
+      val output_fifo_set = Range(0, output_arity) map {
+        i =>
+          val f = FIFO[Out_T](I32(OUTPUT_FIFO_DEPTH))
+          f.explicitName = f"OutputFifo${id}_$i"
+          f
+      }
+      output_fifos.append(output_fifo_set)
+
+      (new_input_fifo_set, output_fifo_set, id_fifo)
+    }
+    new CoprocessorInterface(io._1, io._2, io._3, I32(id))
   }
 }

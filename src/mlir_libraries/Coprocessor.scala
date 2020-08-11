@@ -22,7 +22,7 @@ class CoprocessorScope(val scope_id: scala.Int)(implicit s: argon.State) {
 
   def escape[T](thunk: => T): T = {
     val bundle = state.bundleStack(scope_id)
-    val (result, newBundle)  = state.WithScope({
+    val (result, newBundle) = state.WithScope({
       val tmp = thunk
       tmp
     }, bundle)
@@ -35,9 +35,10 @@ class CoprocessorScope(val scope_id: scala.Int)(implicit s: argon.State) {
 object CoprocessorScope {
   @api def apply[T](init: CoprocessorScope => T)(func: T => Any): Void = {
     val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill")
-    val scope_id: Int = state.bundleStack.size - 1
+    val scope_id: Int = state.bundleStack.size
     Stream(breakWhen = kill).Foreach(*) {
       _ =>
+        // Stage into current scope
         val scope = new CoprocessorScope(scope_id)
         val initialized = init(scope)
         Pipe {
@@ -51,8 +52,6 @@ object CoprocessorScope {
 
 
 // The coprocessor scope defines the control stream.
-// Todo(pyprogrammer): prealloc should be removed once we figure out how to stash the argon.State
-//   We should be able to directly create new FIFOs in the parent scope.
 abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_arity: Int) {
   def coprocessorScope: CoprocessorScope
   implicit val state: argon.State = coprocessorScope.state
@@ -82,7 +81,12 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
     // The central fifo should be able to handle 1 input per input fifo, plus
     val central_input_fifos = Range(0, input_arity) map { _ => FIFO[In_T](I32(input_fifos.size * SCALE_FACTOR)) }
+    central_input_fifos.zipWithIndex foreach {
+      case (fifo, index) =>
+        fifo.explicitName = f"CentralInputFifo$index"
+    }
     val central_output_indices = FIFO[I32](I32(input_fifos.size * SCALE_FACTOR))
+    central_output_indices.explicitName = "CentralOutputIndicesFifo"
 
     // now execute the actual kernel
     'CoprocessorArbiter.Stream.Foreach(*) {
@@ -90,10 +94,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
         // dequeues from all of the fifoes which have an element
         val next_fifo: I32 = priorityDeq(id_fifos:_*)
-
-        val debug: Reg[I32] = Reg[I32](I32(-1), "NEXT_FIFO").dontTouch
-
-        debug := next_fifo
 
         val should_dequeue = input_fifos.zipWithIndex map {
           case (_, ind) =>
@@ -125,29 +125,50 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
     'Coprocessor.Stream.Foreach(*) {
       _ =>
+        utils.checkpoint("CoprocessorStart")
         val inputs = central_input_fifos map {
           _.deq
         }
         val destination = central_output_indices.deq
-        val results = execute(inputs)
 
-        // writeback to proper fifo.
-        output_fifos.zipWithIndex foreach {
-          case (output_bundle, output_index) =>
-            val write_enable = I32(output_index) === destination
-            (output_bundle zip results) foreach {
-              case (fifo, result) =>
-                fifo.enq(result, write_enable)
-            }
+        utils.checkpoint("PostDeq")
+
+        Pipe {
+
+          val debug = Range(0, output_arity) map { _ => Reg[Out_T].dontTouch }
+          debug.zipWithIndex foreach {
+            case (res, index) =>
+              res.explicitName = f"CoprocessorResult_$index"
+          }
+          val results = execute(inputs)
+          utils.checkpoint("PostExecute")
+          (debug zip results) foreach {
+            case (reg, result) =>
+              reg := result
+          }
+          //        val results = execute(inputs)
+
+          // writeback to proper fifo.
+          //        println(s"OutputFIFOs:${output_fifos.mkString(", ")}")
+          utils.checkpoint("WritebackPre")
+          output_fifos.zipWithIndex foreach {
+            case (output_bundle, output_index) =>
+              val write_enable = I32(output_index) === destination
+              (output_bundle zip results) foreach {
+                case (fifo, result) =>
+                  fifo.enq(result, write_enable)
+              }
+          }
+          utils.checkpoint("PostWriteBack")
         }
     }
   }
 
   // Process function takes an input read from a fifo and writes to the corresponding output fifo.
 
-  class CoprocessorInterface(input_stream: Seq[FIFO[In_T]], output_stream: Seq[FIFO[Out_T]], identity_fifo: FIFO[I32], id: I32) {
+  class CoprocessorInterface(input_stream: Seq[FIFO[In_T]], output_stream: Seq[FIFO[Out_T]], identity_fifo: FIFO[I32], id: Int) {
     def enq(input: Seq[In_T]): Void = {
-      identity_fifo.enq(id)
+      identity_fifo.enq(I32(id))
 
       (input_stream zip input) foreach {
         case (fifo, in) => fifo.enq(in)
@@ -155,7 +176,9 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
     }
 
     def deq(): Seq[Out_T] = {
-      output_stream map {_.deq}
+      output_stream map {
+        _.deq
+      }
     }
   }
 
@@ -187,6 +210,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
       (new_input_fifo_set, output_fifo_set, id_fifo)
     }
-    new CoprocessorInterface(io._1, io._2, io._3, I32(id))
+    new CoprocessorInterface(io._1, io._2, io._3, id)
   }
 }

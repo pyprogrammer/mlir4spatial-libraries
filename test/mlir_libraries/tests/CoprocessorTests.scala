@@ -42,14 +42,11 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope) extends mlir_librari
                       case (i, j) =>
                         sram(i, j) = interface.deq().head
                     }
-                  System.out.println(s"Stack Inside: ${implicitly[argon.State].bundleStack}")
               }
             }
         }
         output store sram
-        System.out.println(s"Stack Post-Pipe: ${implicitly[argon.State].bundleStack}")
       }
-      System.out.println(s"Stack At End: ${implicitly[argon.State].bundleStack}")
 
     }
 
@@ -99,8 +96,7 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope) extends mlir_librari
 
 class CoprocessorTest1 extends CoprocessorTests(1, 1)
 class CoprocessorTest2 extends CoprocessorTests(2, 1)
-class CoprocessorTest4 extends CoprocessorTests(4, 2)
-class CoprocessorTest8 extends CoprocessorTests(8, 1)
-class CoprocessorTest4Full extends CoprocessorTests(4, 4)
+class CoprocessorTest4 extends CoprocessorTests(4, 2)  // 1724 cycles
+class CoprocessorTest8 extends CoprocessorTests(8, 2)
 
 class CoprocessorRef1 extends CoprocessorRefs(1, 1)

@@ -1,6 +1,7 @@
 package tensorflow_lattice
 
 import mlir_libraries.types._
+import mlir_libraries.utils.checkpoint
 import spatial.libdsl._
 
 trait Lattice {
@@ -42,9 +43,13 @@ trait Lattice {
 
     new Readable2D[T] {
       override def apply(batch: I32, unit: I32): () => T = {
+
+        checkpoint("LatticeEntry")
         val instantiated_inputs = Seq.tabulate(dimensions) {
           i => expanded_arg(batch, unit, I32(i))
         } map { x => x() }
+
+        checkpoint("LatticePostRead")
 
         val residualPairs = Seq.tabulate(dimensions) { i =>
           val x = instantiated_inputs(i)
@@ -76,9 +81,12 @@ trait Lattice {
 
         val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(parallel_residual_pairs: _*)(_ * _)
 
+        checkpoint("LatticePreRecursive")
+
         def recursive_fill(current_index: scala.Seq[ParameterIndex], base: ParameterIndex): OutputType = {
           val current_dimension = current_index.size
-          if (current_dimension == num_loop_dimensions) {
+          checkpoint(s"LatticeLoop${current_dimension}_begin")
+          val result: OutputType = if (current_dimension == num_loop_dimensions) {
             // finish directly
 
             // Get flat index for each (corner + origin)
@@ -101,22 +109,29 @@ trait Lattice {
           } else {
             val residual_pair = residualPairs(current_dimension)
             // finish recursively.
-            Reduce(Reg[OutputType](0))(2 by 1) {
+            Pipe.Reduce(Reg[OutputType](0))(2 by 1) {
               bit =>
                 val beqz = bit.infix_==(I32(0))
                 val step = mux(beqz, 0.to[ParameterIndex], strides(current_dimension).to[ParameterIndex])
                 // if bk == 0 then we take the weight to be 1-xk otherwise we use xk.
                 val weight = mux(beqz, residual_pair(1), residual_pair(0))
                 val recursive = recursive_fill(current_index :+ bit, base + step)
-
                 recursive * weight.to[OutputType]
             } {
               _ + _
             }
           }
-        }
 
-        () => recursive_fill(scala.Seq.empty[ParameterIndex], argon.uconst[ParameterIndex](0))
+          checkpoint(s"LatticeLoop${current_dimension}_end")
+          result
+        }
+        val reg = Reg[OutputType]
+        reg := recursive_fill(scala.Seq.empty[ParameterIndex], argon.uconst[ParameterIndex](0))
+        checkpoint("PostRecursive")
+
+        () => {
+          reg
+        }
       }
 
       // A lattice goes from (batch, dim, unit) -> (batch, unit)

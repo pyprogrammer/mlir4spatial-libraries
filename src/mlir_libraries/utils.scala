@@ -26,7 +26,7 @@ object utils {
         Reg[Bit](0.to[Bit], s"ckpt_$name").dontTouch
       case None =>
         checkpoints += 1
-        Reg[Bit](0.to[Bit], s"ckpt_$checkpoints")
+        Reg[Bit](0.to[Bit], s"ckpt_$checkpoints").dontTouch
     }
     reg := 1.to[Bit]
   }

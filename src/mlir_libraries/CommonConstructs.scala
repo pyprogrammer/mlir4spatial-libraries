@@ -48,13 +48,6 @@ object CommonConstructs {
           override def coprocessorScope: CoprocessorScope = cps
 
           override def execute(inputs: Seq[I32]): Seq[T] = {
-//            val result: Reg[T] = Reg[T](zero[T], "CoprocessorMaterializeResult")
-//            Pipe {
-//              utils.checkpoint("CoprocessorStageMaterializePre")
-//              result := arg(inputs:_*)()
-//              utils.checkpoint("CoprocessorStageMaterializePost")
-//            }
-//            Seq(result.value)
             Seq(arg(inputs:_*)())
           }
         }
@@ -71,15 +64,12 @@ object CommonConstructs {
         val result = Reg[T]
         val interface = coprocessor.interface
         Pipe {
-          utils.checkpoint("PreEnqueue")
           Stream {
             interface.enq(index)
           }
-          utils.checkpoint("PreDequeue")
           Stream {
             result := interface.deq().head
           }
-          utils.checkpoint("PostDequeue")
         }
         () => result.value
       }

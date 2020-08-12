@@ -91,7 +91,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
     // now execute the actual kernel
     'CoprocessorArbiter.Stream.Foreach(*) {
       _ => {
-
         // dequeues from all of the fifoes which have an element
         val next_fifo: I32 = priorityDeq(id_fifos:_*)
 
@@ -125,32 +124,25 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
     'Coprocessor.Stream.Foreach(*) {
       _ =>
-        utils.checkpoint("CoprocessorStart")
-        val inputs = central_input_fifos map {
-          _.deq
-        }
-        val destination = central_output_indices.deq
-
-        utils.checkpoint("PostDeq")
-
         Pipe {
-
-          val debug = Range(0, output_arity) map { _ => Reg[Out_T].dontTouch }
-          debug.zipWithIndex foreach {
-            case (res, index) =>
-              res.explicitName = f"CoprocessorResult_$index"
+          val input_registers = central_input_fifos map {
+            _ =>
+              Reg[In_T]
           }
+          input_registers.zipWithIndex foreach {
+            case (reg, ind) =>
+              reg.explicitName = f"CoprocessorInputRegister$ind"
+          }
+
+          input_registers.zip(central_input_fifos) foreach {
+            case (reg, fifo) =>
+              reg := fifo.deq
+          }
+          val destination = central_output_indices.deq
+
+          val inputs = input_registers map {_.value}
+
           val results = execute(inputs)
-          utils.checkpoint("PostExecute")
-          (debug zip results) foreach {
-            case (reg, result) =>
-              reg := result
-          }
-          //        val results = execute(inputs)
-
-          // writeback to proper fifo.
-          //        println(s"OutputFIFOs:${output_fifos.mkString(", ")}")
-          utils.checkpoint("WritebackPre")
           output_fifos.zipWithIndex foreach {
             case (output_bundle, output_index) =>
               val write_enable = I32(output_index) === destination
@@ -159,7 +151,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
                   fifo.enq(result, write_enable)
               }
           }
-          utils.checkpoint("PostWriteBack")
         }
     }
   }

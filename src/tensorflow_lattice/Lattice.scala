@@ -44,9 +44,12 @@ trait Lattice {
     new Readable2D[T] {
       override def apply(batch: I32, unit: I32): () => T = {
 
+        val unit_reg = Reg[I32]
+        unit_reg := unit
+
         checkpoint("LatticeEntry")
         val instantiated_inputs = Seq.tabulate(dimensions) {
-          i => expanded_arg(batch, unit, I32(i))
+          i => expanded_arg(batch, unit_reg, I32(i))
         } map { x => x() }
 
         checkpoint("LatticePostRead")
@@ -102,7 +105,7 @@ trait Lattice {
             // Get weighted sum
             hypervolumes.map(_.to[OutputType]).zip(indices).map {
               case (hv, i) =>
-                hv * params(i, unit)
+                hv * params(i, unit_reg)
             }.reduceTree {
               _ + _
             }

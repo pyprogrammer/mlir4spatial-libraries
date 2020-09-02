@@ -138,9 +138,10 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
             case (reg, fifo) =>
               reg := fifo.deq
           }
-          val destination = central_output_indices.deq
 
           val inputs = input_registers map {_.value}
+
+          val destination = central_output_indices.deq
 
           val results = execute(inputs)
           output_fifos.zipWithIndex foreach {
@@ -158,7 +159,12 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
   // Process function takes an input read from a fifo and writes to the corresponding output fifo.
 
   class CoprocessorInterface(input_stream: Seq[FIFO[In_T]], output_stream: Seq[FIFO[Out_T]], identity_fifo: FIFO[I32], id: Int) {
+    var enqueued = false
+    var dequeued = false
+
     def enq(input: Seq[In_T]): Void = {
+      assert(!enqueued)
+      enqueued = true
       identity_fifo.enq(I32(id))
 
       (input_stream zip input) foreach {
@@ -167,6 +173,8 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
     }
 
     def deq(): Seq[Out_T] = {
+      assert(!dequeued)
+      dequeued = true
       output_stream map {
         _.deq
       }
@@ -201,6 +209,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
       (new_input_fifo_set, output_fifo_set, id_fifo)
     }
+    println(s"CoprocBundle: $io, $id")
     new CoprocessorInterface(io._1, io._2, io._3, id)
   }
 }

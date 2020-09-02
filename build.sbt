@@ -23,6 +23,8 @@ libraryDependencies ++= Seq(
   "edu.stanford.cs.dawn" %% "spatial" % "1.1-SNAPSHOT"
 )
 
+libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.5" % "test"
+
 Test / javaSource := baseDirectory.value / "test/"
 
 testForkedParallel in IntegrationTest := true

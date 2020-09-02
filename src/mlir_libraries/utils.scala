@@ -46,4 +46,16 @@ object utils {
       }
     )
   }
+
+  def ComputeStrides(dimensions: IndexedSeq[Int]): IndexedSeq[Int] = {
+    val strides: scala.Array[Int] = scala.Array.fill(dimensions.length) {
+      1
+    }
+    scala.Range(1, dimensions.length, 1) foreach {
+      d => {
+        strides(d) = strides(d - 1) * dimensions(d - 1)
+      }
+    }
+    strides.reverse
+  }
 }

@@ -12,14 +12,14 @@ object CommonConstructs {
     strides.drop(1)
   }
 
-  def Materialize[T: Num](arg: types.ReadableND[T])(implicit state: argon.State): types.ReadableND[T] = {
+  def Materialize[T: Num](arg: types.ReadableND[T], workers: Int = 1)(implicit state: argon.State): types.ReadableND[T] = {
     val size = arg.shape reduceTree {
       _ * _
     }
     val intermediate = SRAM[T](size)
     val strides = computeStrides(arg.shape)
 
-    val ctrs = arg.shape map { x => Counter.from(x by I32(1)) }
+    val ctrs = arg.shape.zipWithIndex map { case(x, ind) => Counter.from(x by I32(1) par I32(if (ind == arg.shape.size - 1) workers else 1)) }
 
     Foreach(ctrs) {
       nd_index => {
@@ -59,6 +59,7 @@ object CommonConstructs {
 
       var count = 0
       override def apply(index: I32*): () => T = {
+        println(s"Coprocessor Use: $count, assigned to ${count % workers}")
         val coprocessor = coprocessors(count % workers)
         count += 1
         val result = Reg[T]

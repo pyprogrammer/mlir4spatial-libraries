@@ -59,7 +59,6 @@ object LatticeWithMaterializeTest {
 }
 
 @spatial class LatticeWithMaterializeTest extends SpatialTest {
-  //  1620 Cycles
 
   type T = spatial.dsl.FixPt[TRUE, _2, _30]
   val dimensions = 5
@@ -100,9 +99,6 @@ object LatticeWithMaterializeTest {
 }
 
 @spatial class LatticeWithLazyMaterializeTest extends SpatialTest {
-  // 2100 cycles
-
-  override val compileArgs = "--noModifyStream --noBindParallels"
 
   type T = spatial.dsl.FixPt[TRUE, _2, _30]
   val dimensions = 5

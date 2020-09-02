@@ -36,10 +36,10 @@ object ConversionImplicits {
     }
   }
 
-  @stateful implicit def R2N[T](rm: Readable2D[T]): ReadableND[T] = {
+  @stateful implicit def R2N[T](rm: Readable2D[T])(implicit srcCtx: SrcCtx): ReadableND[T] = {
     new ReadableND[T] {
       override def apply(index: spatial.dsl.I32*): () => T = {
-        assert(index.length == shape.length, f"Cannot read from a Readable2D converted to ND: ${index}")
+        assert(index.length == shape.length, f"Cannot read from a Readable2D converted to ND: ${index}, $srcCtx")
         rm(index(0), index(1))
       }
       override lazy val shape: Seq[I32] = rm.shape

@@ -14,11 +14,10 @@ trait Lattice {
     type ParameterIndex = I32
     type OutputType = T
 
-    val num_loop_dimensions = config.lattice_loops
-
     val dimensions = shape.length
+    val num_loop_dimensions = scala.math.min(config.lattice_loops, dimensions - 1)
     val parallel_dimensions = dimensions - num_loop_dimensions
-    val strides = ComputeStrides(shape)
+    val strides = mlir_libraries.utils.ComputeStrides(shape)
     val parallel_strides = strides.drop(num_loop_dimensions)
 
     // Ignore tp for now, always "hypercube"
@@ -137,18 +136,6 @@ trait Lattice {
       // A lattice goes from (batch, dim, unit) -> (batch, unit)
       lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
     }
-  }
-
-  protected def ComputeStrides(dimensions: IndexedSeq[Int]): IndexedSeq[Int] = {
-    val strides: scala.Array[Int] = scala.Array.fill(dimensions.length) {
-      1
-    }
-    scala.Range(1, dimensions.length, 1) foreach {
-      d => {
-        strides(d) = strides(d - 1) * dimensions(d - 1)
-      }
-    }
-    strides.reverse
   }
 }
 

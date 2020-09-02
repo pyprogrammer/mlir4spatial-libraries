@@ -3,11 +3,12 @@ package tensorflow_lattice.tests
 import mlir_libraries.ConversionImplicits._
 import mlir_libraries.OptimizationConfig
 import spatial.dsl._
+import mlir_libraries.{Tensor => MLTensor}
 
 object PWLCalibrationTest {
-  val iterations = 1
-  val input_keypoints = scala.Array(-1, 0, 3.75, 12)
-  val pwl_kernel = scala.Array(-2.0, 0.46153846, 1.7307693, 3.8076923) map { x => scala.Array(x) }
+  val iterations = 20
+  val input_keypoints = MLTensor(values=scala.Array(-1, 0, 3.75, 12), shape=scala.Array(4))
+  val pwl_kernel = MLTensor(values = scala.Array(-2.0, 0.46153846, 1.7307693, 3.8076923), shape=scala.Array(4, 1))
 
   val test_inputs = scala.Array(7.06933614, -4.12573739, 8.87435122, 3.55834566, -4.55233995,
     8.0492217, 1.03970506, -0.04190232, 7.99633263, 9.99942084,
@@ -55,8 +56,9 @@ object PWLCalibrationTest {
     (0 until iterations) foreach {
       i =>
         val diff = abs(golden(i) - output(i))
-        assert(diff < 1e-3, r"Expected (${golden(i)}), got (${output(i)}) < 1e-3")
+        assert(diff < 1e-3, r"Expected (${golden(i)}), got (${output(i)}) < 1e-3 at index ${i}")
     }
+    assert(Bit(true), "Executes")
   }
 }
 

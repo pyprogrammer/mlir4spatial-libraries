@@ -53,4 +53,7 @@ object ConversionImplicits {
       override lazy val shape: Seq[I32] = rm.shape
     }
   }
+
+  def ArrayToTensor[T](array: Array[T]): Tensor[T] =
+    Tensor(values = array, shape = Array(array.length))
 }

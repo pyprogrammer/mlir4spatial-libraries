@@ -3,16 +3,18 @@ package mlir_libraries.tests
 import spatial.dsl._
 import mlir_libraries.ConversionImplicits._
 import mlir_libraries.{CoprocessorScope, OptimizationConfig}
+import mlir_libraries.{Tensor => MLTensor}
 
 object LatticeWithMaterializeTest {
   val iterations = 20
-  val lattice_kernel = scala.Array(0.0110625 , 0.02584553, 0.07165873, 0.26998997, 0.06218195,
+  val kernel_values = scala.Array(0.0110625 , 0.02584553, 0.07165873, 0.26998997, 0.06218195,
     0.1307857 , 0.29879928, 0.35565615, 0.07956052, 0.15393174,
     0.3418517 , 0.75207484, 0.08045971, 0.57496   , 0.8091949 ,
     0.8684181 , 0.06763732, 0.22077644, 0.32806575, 0.46256602,
     0.09771216, 0.4320222 , 0.43705177, 0.85577035, 0.10409617,
     0.6642047 , 0.77883446, 0.92640615, 0.5724287 , 0.89747846,
-    0.93232393, 0.9742222) map { x => scala.Array[scala.Double](x) }
+    0.93232393, 0.9742222)
+  val lattice_kernel = MLTensor(values = kernel_values, shape = scala.Array(kernel_values.length, 1))
 
   val test_inputs = scala.Array(scala.Array(0.83698144, 0.26090825, 0.46094936, 0.01416074, 0.29254384),
     scala.Array(0.36440275, 0.47846574, 0.8263542 , 0.149206  , 0.86860653),
@@ -56,6 +58,8 @@ object LatticeWithMaterializeTest {
     0.30632746,
     0.34087235,
     0.4168449 ).take(iterations)
+
+  val lattice_shape = MLTensor(values=scala.Array(2, 2, 2, 2, 2), shape=scala.Array(5))
 }
 
 @spatial class LatticeWithMaterializeTest extends SpatialTest {
@@ -77,7 +81,7 @@ object LatticeWithMaterializeTest {
 
       val lattice =
         tensorflow_lattice.tfl.Lattice(tp = "hypercube",
-          shape = scala.Array(2, 2, 2, 2, 2),
+          shape = LatticeWithMaterializeTest.lattice_shape,
           units = 1,
           lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(RR2(input_sram))
       val materialized = mlir_libraries.CommonConstructs.Materialize(lattice)
@@ -117,7 +121,7 @@ object LatticeWithMaterializeTest {
 
       val lattice =
         tensorflow_lattice.tfl.Lattice(tp = "hypercube",
-          shape = scala.Array(2, 2, 2, 2, 2),
+          shape = LatticeWithMaterializeTest.lattice_shape,
           units = 1,
           lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(RR2(input_sram))
 

@@ -5,7 +5,7 @@ trait TensorLike[T] {
   val shape: Array[Int]
   def apply(index: Int*): T
 
-  def to2DSeq: Seq[Seq[T]] = {
+  lazy val to2DSeq: Seq[Seq[T]] = {
     assert(rank == 2, "to2DSeq only works on 2D Tensors")
     Range(0, shape.head) map {
       x_ind =>
@@ -13,6 +13,18 @@ trait TensorLike[T] {
           y_ind => this(x_ind, y_ind)
         }
     }
+  }
+
+  lazy val to1DSeq: Seq[T] = {
+    assert(rank == 1, "to1DSeq only works on 1D Tensors")
+    Range(0, shape.head) map {
+      x_ind => this(x_ind)
+    }
+  }
+
+  lazy val flatten: Seq[T] = {
+    val iterators: Seq[Seq[Int]] = shape map {x => Range(0, x)}
+    utils.CartesianProduct(iterators:_*) map {index => this(index:_*)}
   }
 
   def transpose(swapdims: (Int, Int) = (0, 1)): TensorLike[T] = {

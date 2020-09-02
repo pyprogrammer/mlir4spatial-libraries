@@ -58,4 +58,19 @@ object utils {
     }
     strides.reverse
   }
+
+  def CartesianProduct[T](components: Seq[T]*): Seq[Seq[T]] = {
+    components match {
+      case Seq() => Seq.empty[Seq[T]]
+      case Seq(one) => one map {Seq(_)}
+      case first +: tail =>
+        val sub = CartesianProduct(tail:_*)
+        first flatMap {
+          head =>
+            sub map {
+              part => Seq(head) ++ part
+            }
+        }
+    }
+  }
 }

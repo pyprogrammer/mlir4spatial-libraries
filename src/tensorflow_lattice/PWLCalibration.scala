@@ -1,35 +1,38 @@
 package tensorflow_lattice
 
 import mlir_libraries.types.Readable2D
+import mlir_libraries.{Tensor => MLTensor}
 import spatial.libdsl._
 
 trait PWLCalibration {
-  def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: scala.Array[scala.Array[scala.Double]], input_keypoints: scala.Array[scala.Double])(arg: Readable2D[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig) = {
+  def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: MLTensor[scala.Double], input_keypoints: MLTensor[scala.Double])(arg: Readable2D[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig) = {
     // kernel is phrased as bias :: deltas.
     // however, we wish to use a priority mux instead, so we first compute the running sum.
     val num_loops = config.pwl_iterations
 
-    val units = {
-      val lengths = (pwl_calibration_kernel map {_.length}).distinct
-      assert(lengths.length == 1, f"Found multiple possible number of units for PWL Calibration. Expected 1. ${lengths}")
-      lengths.head
-    }
+    assert(pwl_calibration_kernel.rank == 2, "PWL Kernel must be rank 2")
+    assert(input_keypoints.rank == 1, "Input keypoints must be rank 1")
 
-    val num_keypoints = input_keypoints.length
+    val units = pwl_calibration_kernel.shape(1)
 
+    val num_keypoints = input_keypoints.shape(0)
+
+    val pwl_calib_array = pwl_calibration_kernel.to2DSeq
+    val input_keypoints_array = input_keypoints.to1DSeq
     // contains output(0), output(1), etc.
-    val cumsum = pwl_calibration_kernel.transpose map {
+    val cumsum = pwl_calib_array.transpose map {
       vec => vec.tail.scanLeft(vec.head) {_ + _}
     }
 
-    val diffs = pwl_calibration_kernel.transpose map {
+    val diffs = pwl_calib_array.transpose map {
       vec => vec.tail
     }
 
     val cumsum_LUT = LUT[T](units, num_keypoints)((cumsum.flatten) map {x => Bits(x.toUnchecked[T])}:_*)
 
-    val input_kp_LUT = LUT[T](num_keypoints + 1)(((input_keypoints :+ input_keypoints.last) map {x => Bits(x.toUnchecked[T])}):_*)
-    val lengths = (input_keypoints zip input_keypoints.tail) map {
+    val input_kp_LUT = LUT[T](num_keypoints)((input_keypoints_array map {x => Bits(x.toUnchecked[T])}):_*)
+
+    val lengths = (input_keypoints_array zip input_keypoints_array.tail) map {
       case (left, right) => right - left
     }
 
@@ -49,25 +52,42 @@ trait PWLCalibration {
       case _ => false
     }
 
-    val par_factor = num_keypoints / num_loops + (if (num_keypoints % num_loops > 0) 1 else 0)
+    val iterations = num_keypoints - 1
 
-//    println(s"Is Degenerate: $degenerate_PWL_input")
+    val par_factor = iterations / num_loops + (if (iterations % num_loops > 0) 1 else 0)
 
     new Readable2D[T] {
+      // batch, unit -> batch, unit
       override def apply(d0: I32, d1: I32): () => T = {
         val out = Reg[T](0).conflictable
-        Foreach(num_keypoints by 1 par I32(par_factor)) {
-          kp_index =>
-            val staged = if (degenerate_PWL_input) arg(d0, I32(0)) else arg(d0, d1)
-            val value = staged()
-            val input_kp = input_kp_LUT(kp_index)
-            val next_kp = input_kp_LUT(kp_index + I32(1))
-            val scaled_diff = scaled_diffs_LUT(d0, kp_index)
-            val offset = value - input_kp
-            val is_valid = (input_kp < value) && (value <= next_kp)
-            // Relies on the fact that 0 is a vector of all 0's in type T.
-            out.write(cumsum_LUT(d1, kp_index) + offset * scaled_diff, is_valid)
+        val staged = if (degenerate_PWL_input) arg(d0, I32(0)) else arg(d0, d1)
+        val value = staged()
+
+        Parallel {
+          // Handles cases where the input is within the keypoints.
+          // Still need to handle the cases where the input is less than the first keypoint or larger than the last keypoint.
+          Pipe.Foreach(iterations by 1 par I32(par_factor)) {
+            kp_index =>
+              val input_kp = input_kp_LUT(kp_index)
+              val next_kp = input_kp_LUT(kp_index + I32(1))
+              val scaled_diff = scaled_diffs_LUT(d1, kp_index)
+              val offset = value - input_kp
+              val is_valid = (input_kp < value) && (value <= next_kp)
+              val output = cumsum_LUT(d1, kp_index) + offset * scaled_diff
+              out.write(output, is_valid)
+          }
+          // Handle Edge Cases
+          Pipe {
+            val before_first = input_keypoints_array.head.toUnchecked[T] >= value
+            out.write(cumsum_LUT(d1, I32(0)), before_first)
+          }
+
+          Pipe {
+            val after_last = input_keypoints_array.last.toUnchecked[T] <= value
+            out.write(cumsum_LUT(d1, I32(num_keypoints - 1)), after_last)
+          }
         }
+
 
         () => out.value
       }

@@ -3,10 +3,11 @@ package tensorflow_lattice
 import mlir_libraries.types._
 import mlir_libraries.utils.checkpoint
 import spatial.libdsl._
+import mlir_libraries.{Tensor => MLTensor}
 
 trait Lattice {
 
-  def Lattice[T: Num](lattice_kernel: scala.Array[scala.Array[scala.Double]], tp: String, shape: scala.Array[scala.Int],
+  def Lattice[T: Num](lattice_kernel: MLTensor[scala.Double], tp: String, shape: MLTensor[scala.Int],
                        units: Int)(arg: ReadableND[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig): Readable2D[T] = {
 
     type ResidualType = T
@@ -14,18 +15,18 @@ trait Lattice {
     type ParameterIndex = I32
     type OutputType = T
 
-    val dimensions = shape.length
+    val dimensions = shape.rank
     val num_loop_dimensions = scala.math.min(config.lattice_loops, dimensions - 1)
     val parallel_dimensions = dimensions - num_loop_dimensions
-    val strides = mlir_libraries.utils.ComputeStrides(shape)
+    val strides = mlir_libraries.utils.ComputeStrides(shape.flatten.toIndexedSeq)
     val parallel_strides = strides.drop(num_loop_dimensions)
 
     // Ignore tp for now, always "hypercube"
 
     // The outer list is in order, the inner dimension of the array corresponds to an output vector unit.
 
-    val param_list = lattice_kernel.flatten.map { x => Bits(x.toUnchecked[T]) }.toSeq
-    val params = LUT[OutputType](lattice_kernel.length, units)(param_list: _*)
+    val param_list = lattice_kernel.flatten.map { x => Bits(x.toUnchecked[T]) }
+    val params = LUT[OutputType](lattice_kernel.shape.head, units)(param_list: _*)
 
     // needed to pass shape into readable def
     val lattice_shape = shape

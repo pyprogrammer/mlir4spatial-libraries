@@ -1,11 +1,11 @@
 package tensorflow_lattice
 
-import mlir_libraries.types.Readable2D
+import mlir_libraries.types.ReadableND
 import mlir_libraries.{Tensor => MLTensor}
 import spatial.libdsl._
 
 trait PWLCalibration {
-  def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: MLTensor[scala.Double], input_keypoints: MLTensor[scala.Double])(arg: Readable2D[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig) = {
+  def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: MLTensor[scala.Double], input_keypoints: MLTensor[scala.Double])(arg: ReadableND[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig) = {
     // kernel is phrased as bias :: deltas.
     // however, we wish to use a priority mux instead, so we first compute the running sum.
     val num_loops = config.pwl_iterations
@@ -56,12 +56,19 @@ trait PWLCalibration {
 
     val par_factor = iterations / num_loops + (if (iterations % num_loops > 0) 1 else 0)
 
-    new Readable2D[T] {
+    new ReadableND[T] {
       // batch, unit -> batch, unit
-      override def apply(d0: I32, d1: I32): () => T = {
+      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
+        val d0 = index.head
+        val d1 = index.last
         val out = Reg[T](0).conflictable
-        val staged = if (degenerate_PWL_input) arg(d0, I32(0)) else arg(d0, d1)
+        val staged = if (degenerate_PWL_input) arg(Seq(index.head, I32(0)), ens) else arg(index, ens)
         val value = staged()
+
+        {
+          import spatial.dsl._
+          println(r"PWL Input ($d0: ${d0.ctx}, $d1: ${d1.ctx}): $value")
+        }
 
         Parallel {
           // Handles cases where the input is within the keypoints.
@@ -80,14 +87,29 @@ trait PWLCalibration {
           Pipe {
             val before_first = input_keypoints_array.head.toUnchecked[T] >= value
             out.write(cumsum_LUT(d1, I32(0)), before_first)
+
+            {
+              import spatial.dsl._
+              println(r"Before First: $before_first => ${cumsum_LUT(d1, I32(0))}")
+            }
           }
 
           Pipe {
             val after_last = input_keypoints_array.last.toUnchecked[T] <= value
             out.write(cumsum_LUT(d1, I32(num_keypoints - 1)), after_last)
+
+            {
+              import spatial.dsl._
+              println(r"After Last: $after_last => ${cumsum_LUT(d1, I32(num_keypoints - 1))}")
+            }
           }
         }
 
+
+        {
+          import spatial.dsl._
+          println(r"Output: $out")
+        }
 
         () => out.value
       }

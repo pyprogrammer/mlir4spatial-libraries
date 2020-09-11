@@ -24,14 +24,14 @@ object CommonConstructs {
     Foreach(ctrs) {
       nd_index => {
         val index = utils.computeIndex(nd_index, strides)
-        intermediate(index) = arg(nd_index: _*)()
+        intermediate(index) = arg(nd_index, Set(Bit(true)))()
       }
     }
 
     new types.ReadableND[T] {
       override lazy val shape = arg.shape
 
-      override def apply(index: spatial.dsl.I32*): () => T = {
+      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
         () => {
           val ind = utils.computeIndex(index, strides)
           intermediate(ind)
@@ -48,7 +48,7 @@ object CommonConstructs {
           override def coprocessorScope: CoprocessorScope = cps
 
           override def execute(inputs: Seq[I32]): Seq[T] = {
-            Seq(arg(inputs:_*)())
+            Seq(arg(inputs, Set(Bit(true)))())
           }
         }
       }
@@ -58,12 +58,14 @@ object CommonConstructs {
       override lazy val shape = arg.shape
 
       var count = 0
-      override def apply(index: I32*): () => T = {
+      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
         println(s"Coprocessor Use: $count, assigned to ${count % workers}")
         val coprocessor = coprocessors(count % workers)
         count += 1
         val result = Reg[T]
         val interface = coprocessor.interface
+        val en = ens.toSeq reduceTree {_ && _}
+        ifThenElse(en, () => {
         Pipe {
           Stream {
             interface.enq(index)
@@ -71,7 +73,7 @@ object CommonConstructs {
           Stream {
             result := interface.deq().head
           }
-        }
+        }}, () => {})
         () => result.value
       }
     }

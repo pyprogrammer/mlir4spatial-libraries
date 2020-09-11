@@ -83,10 +83,10 @@ object LatticeWithMaterializeTest {
         tensorflow_lattice.tfl.Lattice(tp = "hypercube",
           shape = LatticeWithMaterializeTest.lattice_shape,
           units = 1,
-          lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(RR2(input_sram))
+          lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(input_sram)
       val materialized = mlir_libraries.CommonConstructs.Materialize(lattice)
       Pipe.Foreach(iterations by 1) { i =>
-        output_sram(i) = materialized(i, I32(0))()
+        output_sram(i) = materialized(Seq(i, I32(0)), Set(Bit(true)))()
       }
 
       output_DRAM store output_sram
@@ -123,7 +123,7 @@ object LatticeWithMaterializeTest {
         tensorflow_lattice.tfl.Lattice(tp = "hypercube",
           shape = LatticeWithMaterializeTest.lattice_shape,
           units = 1,
-          lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(RR2(input_sram))
+          lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(input_sram)
 
       CoprocessorScope {
         scope =>
@@ -132,7 +132,7 @@ object LatticeWithMaterializeTest {
       } {
         materialized =>
           Pipe.Foreach(iterations by 1) { i =>
-            output_sram(i) = materialized(i, I32(0))()
+            output_sram(i) = materialized(Seq(i, I32(0)), Set(Bit(true)))()
           }
       }
 

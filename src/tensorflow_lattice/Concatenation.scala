@@ -1,5 +1,6 @@
 package tensorflow_lattice
 
+import argon.node.IfThenElse
 import mlir_libraries.types._
 import spatial.dsl
 import spatial.libdsl._
@@ -14,9 +15,10 @@ trait Concatenation {
 
     val axis_sizes = args.map {_.shape(concat_axis)}
     val breakpoints = axis_sizes.tail.scanLeft(axis_sizes.head){_ + _}
+    println(f"Concatenate Breakpoints: $breakpoints")
 
     new ReadableND[T] {
-      override def apply(index: spatial.dsl.I32*): () => T = {
+      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
 
         // compute breakpoints for each respective bank. This can be phrased as a priority mux across all banks, with
         // the enable signal being whether the ub[axis] > index[axis]
@@ -63,7 +65,7 @@ trait Concatenation {
         }
 
         val reads = pruned_enables map {
-          case (_, input_index) =>
+          case (en, input_index) =>
             val input = args(input_index)
             val sub_index: Seq[I32] = index.zipWithIndex map { case (i, meta_index) =>
               if (meta_index != concat_axis) {
@@ -76,15 +78,24 @@ trait Concatenation {
                 }
               }
             }
-            input(sub_index:_*)
+            input(sub_index, ens + en)
         }
         assert(pruned_enables.length == reads.length,
           f"Enables (${enables.length}) and Reads (${reads.length}) should have same length.")
+
+        val final_signals = pruned_enables map {_._1}
+
+        {
+          import spatial.dsl._
+          print(r"Concatenate Signals: ")
+          final_signals foreach {sig => print(r" $sig")}
+          println("")
+        }
+
         if (pruned_enables.length == 1) {
           reads.head
         } else {
-          val v = priorityMux(pruned_enables map {_._1}, reads map {x => x()})
-          () => v
+          () => priorityMux(pruned_enables map {_._1}, reads map {x => x()})
         }
       }
 
@@ -108,10 +119,10 @@ trait Concatenation {
         arg.shape.take(axis) ++ Seq(I32(1)) ++ arg.shape.drop(axis)
       }
 
-      override def apply(index: dsl.I32*): () => T = {
+      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
         // cut out middle dimension.
         val new_index = index.take(axis) ++ index.drop(axis + 1)
-        arg(new_index:_*)
+        arg(new_index, ens)
       }
     }
   }

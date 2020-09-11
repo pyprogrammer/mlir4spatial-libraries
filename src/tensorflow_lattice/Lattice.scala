@@ -8,14 +8,14 @@ import mlir_libraries.{Tensor => MLTensor}
 trait Lattice {
 
   def Lattice[T: Num](lattice_kernel: MLTensor[scala.Double], tp: String, shape: MLTensor[scala.Int],
-                       units: Int)(arg: ReadableND[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig): Readable2D[T] = {
+                       units: Int)(arg: ReadableND[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig): ReadableND[T] = {
 
     type ResidualType = T
     type AccumResidualType = T
     type ParameterIndex = I32
     type OutputType = T
 
-    val dimensions = shape.rank
+    val dimensions = shape.shape.head
     val num_loop_dimensions = scala.math.min(config.lattice_loops, dimensions - 1)
     val parallel_dimensions = dimensions - num_loop_dimensions
     val strides = mlir_libraries.utils.ComputeStrides(shape.flatten.toIndexedSeq)
@@ -41,13 +41,21 @@ trait Lattice {
     // Get all vertices of hypercube and reverse so that these are opposite the hypervolumes
     val corners: Seq[Seq[scala.Int]] = HypercubeLattice.allCorners(Seq.fill(parallel_dimensions)(1)).reverse
 
-    new Readable2D[T] {
-      override def apply(batch: I32, unit: I32): () => T = {
-
+    new ReadableND[T] {
+      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
+        val batch = index(index.length - 2)
+        val unit = index.last
         checkpoint("LatticeEntry")
         val instantiated_inputs = Seq.tabulate(dimensions) {
-          i => expanded_arg(batch, unit, I32(i))
+          i => expanded_arg(Seq(batch, unit, I32(i)), ens + Bit(true))
         } map { x => x() }
+
+        {
+          import spatial.dsl._
+          println(r"Lattice Inputs: ")
+          instantiated_inputs map {input => println(r" $input")}
+          println("")
+        }
 
         checkpoint("LatticePostRead")
 

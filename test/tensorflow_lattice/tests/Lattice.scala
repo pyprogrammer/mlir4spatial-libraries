@@ -80,8 +80,8 @@ object LatticeTest {
           tensorflow_lattice.tfl.Lattice(tp = "hypercube",
             shape = MLTensor(values = scala.Array(2, 2, 2, 2, 2), shape=scala.Array(5)),
             units = 1,
-            lattice_kernel = LatticeTest.lattice_kernel)(RR2(input_sram))
-        output_sram(i) = lattice(i, I32(0))()
+            lattice_kernel = LatticeTest.lattice_kernel)(input_sram)
+        output_sram(i) = lattice(Seq(i, I32(0)), Set(Bit(true)))()
       }
 
       output_DRAM store output_sram

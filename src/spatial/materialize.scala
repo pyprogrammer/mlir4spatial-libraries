@@ -2,8 +2,8 @@ package mlir_libraries
 
 import spatial.libdsl._
 
-object CommonConstructs {
-
+// For MLIR-spatial native operations
+object spatiallib {
   private def computeStrides[T: Num](shape: Seq[T])(implicit state: argon.State): Seq[T] = {
     val strides = shape.scanRight(1.to[T]) {
       case (s, stride) =>
@@ -12,14 +12,14 @@ object CommonConstructs {
     strides.drop(1)
   }
 
-  def Materialize[T: Num](arg: types.ReadableND[T], workers: Int = 1)(implicit state: argon.State): types.ReadableND[T] = {
+  def Materialize[T: Num](parallelization: Int = 1)(arg: types.ReadableND[T])(implicit state: argon.State): types.ReadableND[T] = {
     val size = arg.shape reduceTree {
       _ * _
     }
     val intermediate = SRAM[T](size)
     val strides = computeStrides(arg.shape)
 
-    val ctrs = arg.shape.zipWithIndex map { case(x, ind) => Counter.from(x by I32(1) par I32(if (ind == arg.shape.size - 1) workers else 1)) }
+    val ctrs = arg.shape.zipWithIndex map { case(x, ind) => Counter.from(x by I32(1) par I32(if (ind == arg.shape.size - 1) parallelization else 1)) }
 
     Foreach(ctrs) {
       nd_index => {
@@ -66,14 +66,14 @@ object CommonConstructs {
         val interface = coprocessor.interface
         val en = ens.toSeq reduceTree {_ && _}
         ifThenElse(en, () => {
-        Pipe {
-          Stream {
-            interface.enq(index)
-          }
-          Stream {
-            result := interface.deq().head
-          }
-        }}, () => {})
+          Pipe {
+            Stream {
+              interface.enq(index)
+            }
+            Stream {
+              result := interface.deq().head
+            }
+          }}, () => {})
         () => result.value
       }
     }

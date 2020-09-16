@@ -1,6 +1,5 @@
 package tensorflow_lattice
 
-import argon.node.IfThenElse
 import mlir_libraries.types._
 import spatial.dsl
 import spatial.libdsl._
@@ -106,7 +105,7 @@ trait Concatenation {
             if (index != concat_axis) {
               args.head.shape(index)
             } else {
-              (args map {arg: ReadableND[T] => arg.shape(index)}) reduce { _ + _}
+              (args map {arg: ReadableND[T] => arg.shape(index)}) reduceTree {_ + _}
             }
         }
       }

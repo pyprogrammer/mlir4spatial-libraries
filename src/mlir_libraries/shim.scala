@@ -2,6 +2,7 @@ package mlir_libraries
 
 import argon.stage
 import forge.tags.stateful
+import spatial.dsl
 import spatial.node.SRAMRead
 
 object types {
@@ -25,6 +26,16 @@ object ConversionImplicits {
         () => stage(SRAMRead(rm, index, ens))
       }
       override lazy val shape: Seq[I32] = rm.dims
+    }
+  }
+
+  @stateful implicit def NDCast[T: Bits, U: Bits](src: ReadableND[T])(implicit conv: argon.Cast[T, U]): ReadableND[U] = {
+    new ReadableND[U] {
+      override def apply(index: Seq[dsl.I32], ens: Set[dsl.Bit]): () => U = {
+        val t = src(index, ens)
+        () => t().to[U]
+      }
+      override lazy val shape = src.shape
     }
   }
 

@@ -8,6 +8,7 @@ import spatial.node.SRAMRead
 object types {
   trait Shaped {
     val shape: Seq[spatial.dsl.I32]
+    def size(implicit state: argon.State): spatial.dsl.I32 = shape reduce {_ * _}
   }
 
   trait ReadableND[T] extends Shaped {

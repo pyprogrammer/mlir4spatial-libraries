@@ -1,6 +1,7 @@
 package mlir_libraries
 
 import spatial.libdsl._
+import spatial.metadata.memory._
 
 // For MLIR-spatial native operations
 object spatiallib {
@@ -12,11 +13,14 @@ object spatiallib {
     strides.drop(1)
   }
 
-  def Materialize[T: Num](parallelization: Int = 1)(arg: types.ReadableND[T])(implicit state: argon.State): types.ReadableND[T] = {
+  var materialization_cnt = -1
+  def Materialize[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State): types.ReadableND[T] = {
+    materialization_cnt += 1
     val size = arg.shape reduceTree {
       _ * _
     }
-    val intermediate = SRAM[T](size)
+    val intermediate = SRAM[T](size).nonbuffer
+    intermediate.explicitName = f"materialization_sram_$materialization_cnt"
     val strides = computeStrides(arg.shape)
 
     val ctrs = arg.shape.zipWithIndex map { case(x, ind) => Counter.from(x by I32(1) par I32(if (ind == arg.shape.size - 1) parallelization else 1)) }
@@ -28,22 +32,37 @@ object spatiallib {
       }
     }
 
+    retimeGate()
+
     new types.ReadableND[T] {
       override lazy val shape = arg.shape
 
+      var metacnt = -1
       override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
+        metacnt += 1
+        println(s"Materialize: $materialization_cnt $metacnt")
         () => {
           val ind = utils.computeIndex(index, strides)
-          intermediate(ind)
+          val tmp = intermediate(ind)
+          val dbg_index = Reg[I32]
+          dbg_index.dontTouch
+          dbg_index := ind
+          dbg_index.explicitName = f"materialization_dbg_${materialization_cnt}_${metacnt}"
+
+          val retVal = Reg[T]
+          retVal.dontTouch
+          retVal.explicitName = f"materialization_retval_${materialization_cnt}_${metacnt}"
+          retVal := tmp
+          retVal
         }
       }
     }
   }
 
-  def CoprocessorStage[T: Num](arg: types.ReadableND[T], workers: scala.Int = 1)(implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
+  def CoprocessorStage[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
 
     val coprocessors = {
-      Range(0, workers) map { _ =>
+      Range(0, parallelization) map { _ =>
         new Coprocessor[I32, T](arg.shape.size, 1) {
           override def coprocessorScope: CoprocessorScope = cps
 
@@ -59,8 +78,8 @@ object spatiallib {
 
       var count = 0
       override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-        println(s"Coprocessor Use: $count, assigned to ${count % workers}")
-        val coprocessor = coprocessors(count % workers)
+        println(s"Coprocessor Use: $count, assigned to ${count % parallelization}")
+        val coprocessor = coprocessors(count % parallelization)
         count += 1
         val result = Reg[T]
         val interface = coprocessor.interface

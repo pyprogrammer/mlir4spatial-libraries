@@ -1,9 +1,9 @@
 package mlir_libraries.tests
 
+import emul.FixedPoint
 import spatial.dsl._
 import mlir_libraries.ConversionImplicits._
-import mlir_libraries.{CoprocessorScope, OptimizationConfig}
-import mlir_libraries.{Tensor => MLTensor}
+import mlir_libraries.{CoprocessorScope, OptimizationConfig, types, Tensor => MLTensor}
 
 object LatticeWithMaterializeTest {
   val iterations = 20
@@ -102,6 +102,61 @@ object LatticeWithMaterializeTest {
   }
 }
 
+@spatial class LatticeWithDoubleMaterializeTest extends SpatialTest {
+
+  type T = spatial.dsl.FixPt[TRUE, _2, _30]
+  val dimensions = 5
+
+  def simpleTransform(arg: mlir_libraries.types.ReadableND[T]) = {
+
+    new types.ReadableND[T] {
+      override def apply(index: Seq[I32], ens: Set[Bit]): () => T = {
+        val tmp = arg(index, ens)
+        () => {
+          tmp() + 1
+        }
+      }
+
+      override lazy val shape: Seq[I32] = arg.shape
+    }
+  }
+
+  implicit val cfg = OptimizationConfig(lattice_loops = 4)
+  def main(args: Array[String]): Unit = {
+    val iterations = LatticeWithMaterializeTest.iterations
+    val input_DRAM = DRAM[T](iterations, dimensions)
+    setMem(input_DRAM, Array((LatticeWithMaterializeTest.test_inputs map { argon.uconst[T](_) }):_*))
+    val output_DRAM = DRAM[T](I32(iterations))
+
+    Accel {
+      val input_sram = SRAM[T](iterations, dimensions)
+      input_sram load input_DRAM(0 :: iterations, 0 :: dimensions)
+      val output_sram = SRAM[T](iterations)
+
+      val lattice =
+        tensorflow_lattice.tfl.Lattice(tp = "hypercube",
+          shape = LatticeWithMaterializeTest.lattice_shape,
+          units = 1,
+          lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(input_sram)
+      val materialized = mlir_libraries.spatiallib.Materialize()(
+        simpleTransform(mlir_libraries.spatiallib.Materialize()(lattice)))
+      Pipe.Foreach(iterations by 1) { i =>
+        output_sram(i) = materialized(Seq(i, I32(0)), Set(Bit(true)))()
+      }
+
+      output_DRAM store output_sram
+    }
+    val golden = Array[T]((LatticeWithMaterializeTest.golden map { argon.uconst[T](_) }):_*)
+    val outputs = getMem(output_DRAM)
+    (0 until iterations) foreach {
+      i =>
+        val diff = abs(golden(i) + argon.uconst[T](1) - outputs(i))
+        println(r"Reference: ${golden(i)}, received: ${outputs(i)}")
+        assert(diff < 1e-3, r"Expected (${golden(i)}), got (${outputs(i)}) < 1e-3 at output (${i})")
+    }
+  }
+}
+
 @spatial class LatticeWithLazyMaterializeTest extends SpatialTest {
 
   type T = spatial.dsl.FixPt[TRUE, _2, _30]
@@ -128,7 +183,7 @@ object LatticeWithMaterializeTest {
       CoprocessorScope {
         scope =>
           implicit val sc = scope
-          mlir_libraries.spatiallib.CoprocessorStage(lattice)
+          mlir_libraries.spatiallib.CoprocessorStage()(lattice)
       } {
         materialized =>
           Pipe.Foreach(iterations by 1) { i =>

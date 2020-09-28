@@ -50,7 +50,8 @@ class DumpScope(implicit state: argon.State) {
       escapeDram
     }
 
-    val intermediate = SRAM[T](arg.size).nonbuffer
+    val intermediate = RegFile[T](arg.size).nonbuffer
+    intermediate.shouldIgnoreConflicts = true
     intermediate.explicitName = f"dump_SRAM_$name"
     val strides = computeStrides(arg.shape)
 
@@ -69,7 +70,7 @@ class DumpScope(implicit state: argon.State) {
 
         () => {
           val result = tmp()
-          argon.stage(spatial.node.SRAMWrite(intermediate,result,Seq(utils.computeIndex(index, strides)), ens))
+          argon.stage(spatial.node.RegFileWrite(intermediate,result,Seq(utils.computeIndex(index, strides)), ens))
           result
         }
       }

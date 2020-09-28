@@ -66,7 +66,8 @@ object tf extends Concatenation with Blas3 {
     }
   }
 
-  def Transpose[T:Num](axes: Array[Int])(arg: ReadableND[T])(implicit state: argon.State): ReadableND[T] = {
+  def Transpose[T:Num](axes: MLTensor[Int])(arg: ReadableND[T])(implicit state: argon.State): ReadableND[T] = {
+    assert(axes.rank == 1)
     ShuffleAxes(Seq(axes(0) -> axes(1), axes(1)->axes(0)).toMap)(arg)
   }
 

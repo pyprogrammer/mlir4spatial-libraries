@@ -16,7 +16,7 @@ class CoprocessorScope(val scope_id: scala.Int)(implicit s: argon.State) {
 
   def instantiate(): Void = {
     Stream {
-      coprocessors foreach {x => x()}
+      coprocessors.reverse foreach {x => x()}
     }
   }
 
@@ -79,6 +79,11 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
     assert(!frozen)
     frozen = true
 
+    if (id_fifos.size == 0) {
+      argon.warn("Instantiated coprocessor has no uses")
+      state.logWarning()
+    }
+
     // The central fifo should be able to handle 1 input per input fifo, plus
     val central_input_fifos = Range(0, input_arity) map { _ => FIFO[In_T](I32(input_fifos.size * SCALE_FACTOR)) }
     central_input_fifos.zipWithIndex foreach {
@@ -92,6 +97,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
     'CoprocessorArbiter.Stream.Foreach(*) {
       _ => {
         // dequeues from all of the fifoes which have an element
+        println(s"Number of id fifos: ${id_fifos.size}")
         val next_fifo: I32 = priorityDeq(id_fifos:_*)
 
         val should_dequeue = input_fifos.zipWithIndex map {

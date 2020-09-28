@@ -21,7 +21,7 @@ unmanagedSourceDirectories in Compile += baseDirectory.value / "generated/"
 //resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository/"
 
 libraryDependencies ++= Seq(
-  "edu.stanford.cs.dawn" %% "spatial" % "1.1-SNAPSHOT"
+  "edu.stanford.cs.dawn" %% "spatial" % "1.1-SNAPSHOT-nzhang"
 )
 
 libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.5" % "test"

@@ -14,6 +14,7 @@ trait Concatenation {
 
     val axis_sizes = args.map {_.shape(concat_axis)}
     val breakpoints = axis_sizes.tail.scanLeft(axis_sizes.head){_ + _}
+    println(f"Axis Sizes: $axis_sizes")
     println(f"Concatenate Breakpoints: $breakpoints")
 
     new ReadableND[T] {

@@ -34,18 +34,26 @@ class CoprocessorScope(val scope_id: scala.Int)(implicit s: argon.State) {
 
 object CoprocessorScope {
   @api def apply[T](init: CoprocessorScope => T)(func: T => Any): Void = {
-    val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill")
     val scope_id: Int = state.bundleStack.size
-    Stream(breakWhen = kill).Foreach(*) {
-      _ =>
-        // Stage into current scope
+    if (Options.Coproc) {
+      val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill")
+      Stream(breakWhen = kill).Foreach(*) {
+        _ =>
+          // Stage into current scope
+          val scope = new CoprocessorScope(scope_id)
+          val initialized = init(scope)
+          Pipe {
+            func(initialized)
+            kill := 1.to[Bit]
+          }
+          scope.instantiate()
+      }
+    } else {
+      Pipe {
         val scope = new CoprocessorScope(scope_id)
         val initialized = init(scope)
-        Pipe {
-          func(initialized)
-          kill := 1.to[Bit]
-        }
-        scope.instantiate()
+        func(initialized)
+      }
     }
   }
 }
@@ -148,7 +156,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
           val inputs = input_registers map {_.value}
 
           val destination = central_output_indices.deq
-
           val results = execute(inputs)
           output_fifos.zipWithIndex foreach {
             case (output_bundle, output_index) =>
@@ -171,10 +178,12 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
     def enq(input: Seq[In_T]): Void = {
       assert(!enqueued)
       enqueued = true
-      identity_fifo.enq(I32(id))
+      Parallel {
+        identity_fifo.enq(I32(id))
 
-      (input_stream zip input) foreach {
-        case (fifo, in) => fifo.enq(in)
+        (input_stream zip input) foreach {
+          case (fifo, in) => fifo.enq(in)
+        }
       }
     }
 

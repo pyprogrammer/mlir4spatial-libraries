@@ -5,10 +5,19 @@ import mlir_libraries.{Tensor => MLTensor}
 import spatial.libdsl._
 
 trait PWLCalibration {
+
+  var pwl_id = 0
+  def getPWLId() = {
+    val tmp = pwl_id
+    pwl_id += 1
+    pwl_id
+  }
+
   def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: MLTensor[scala.Double], input_keypoints: MLTensor[scala.Double])(arg: ReadableND[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig) = {
     // kernel is phrased as bias :: deltas.
     // however, we wish to use a priority mux instead, so we first compute the running sum.
     val num_loops = config.pwl_iterations
+    val id = getPWLId()
 
     assert(pwl_calibration_kernel.rank == 2, "PWL Kernel must be rank 2")
     assert(input_keypoints.rank == 1, "Input keypoints must be rank 1")
@@ -67,7 +76,7 @@ trait PWLCalibration {
 
         {
           import spatial.dsl._
-          println(r"PWL Input ($d0: ${d0.ctx}, $d1: ${d1.ctx}): $value")
+          println(r"PWL Input ID: $id ($d0: ${d0.ctx}, $d1: ${d1.ctx}): $value")
         }
 
         Parallel {

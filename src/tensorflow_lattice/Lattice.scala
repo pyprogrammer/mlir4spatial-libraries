@@ -45,57 +45,52 @@ trait Lattice {
       override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
         val batch = index(index.length - 2)
         val unit = index.last
-        checkpoint("LatticeEntry")
-        val instantiated_inputs = Seq.tabulate(dimensions) {
-          i => expanded_arg(Seq(batch, unit, I32(i)), ens + Bit(true))
-        } map { x => x() }
 
-        {
-          import spatial.dsl._
-          println(r"Lattice Inputs: ")
-          instantiated_inputs map {input => println(r" $input")}
-          println("")
-        }
-
-        checkpoint("LatticePostRead")
-
-        val residualPairs = Seq.tabulate(dimensions) { i =>
-          val x = instantiated_inputs(i)
-          val floored = floor(x).to[AccumResidualType]
-          val diff = x - floored
-          scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
-        }
-
-        val base_vec: Seq[ParameterIndex] = scala.Array.tabulate(num_loop_dimensions) { x =>
-          (lattice_shape(x), HypercubeLattice.PO2Opt) match {
-            case (2, true) =>
-              0.to[ParameterIndex]
-            case (shape, _) =>
-              min(instantiated_inputs(x).to[ParameterIndex], I32(shape - 1))
-          }
-        }
-
-        // compute the base index
-        // if we're not looping at all then ignore this.
-        val base_index = if (num_loop_dimensions > 0) {
-          (base_vec zip strides) map { case (b, s) => b * s.to[ParameterIndex] } reduceTree {
-            _ + _
-          }
-        } else {
-          0.to[ParameterIndex]
-        }
-
-        val parallel_residual_pairs = residualPairs.drop(num_loop_dimensions)
-
-        val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(parallel_residual_pairs: _*)(_ * _)
-
-        checkpoint("LatticePreRecursive")
+        val new_enable = if (ens.isEmpty) Set(Bit(true)) else ens
 
         def recursive_fill(current_index: scala.Seq[ParameterIndex], base: ParameterIndex): OutputType = {
           val current_dimension = current_index.size
           checkpoint(s"LatticeLoop${current_dimension}_begin")
           val result: OutputType = if (current_dimension == num_loop_dimensions) {
-            // finish directly
+          // finish directly
+
+          val remainingInputs = Range(num_loop_dimensions, dimensions) map {
+            dim => expanded_arg(Seq(batch, unit, I32(dim)), new_enable)
+          } map {x => x()}
+
+          val parallelResidualPairs = remainingInputs map {
+            value =>
+              val floored = floor(value).to[AccumResidualType]
+              val diff = value - floored
+              scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
+          }
+
+          println(s"Parallel pairs: $parallelResidualPairs, length: ${parallelResidualPairs.length}")
+
+          val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(parallelResidualPairs: _*)(_ * _)
+
+          val base_vec = (Range(num_loop_dimensions, dimensions) zip remainingInputs) map {
+            case (dim, inpt) =>
+              (lattice_shape(dim), mlir_libraries.Options.PO2Opt) match {
+                case (2, true) =>
+                  0.to[ParameterIndex]
+                case (shape, _) =>
+                  min(inpt.to[ParameterIndex], I32(shape - 1))
+              }
+          }
+
+          println(s"Base Vec: $base_vec, Strides: ${strides.drop(num_loop_dimensions)}")
+
+          val base_index = (base_vec zip strides.drop(num_loop_dimensions)) map { case (b, s) => b * s.to[ParameterIndex] } reduceTree { _ + _ }
+
+//          val base_vec: Seq[ParameterIndex] = scala.Array.tabulate(dimensions) { x =>
+//            (lattice_shape(x), mlir_libraries.Options.PO2Opt) match {
+//              case (2, true) =>
+//                0.to[ParameterIndex]
+//              case (shape, _) =>
+//                min(remainingInputs(x).to[ParameterIndex], I32(shape - 1))
+//            }
+//          }
 
             // Get flat index for each (corner + origin)
             val indices: Seq[ParameterIndex] = corners map {
@@ -115,10 +110,14 @@ trait Lattice {
               _ + _
             }
           } else {
-            val residual_pair = residualPairs(current_dimension)
+            val input_staged = expanded_arg(Seq(batch, unit, I32(current_dimension)), new_enable)
             // finish recursively.
             Pipe.Reduce(Reg[OutputType](0))(2 by 1) {
               bit =>
+                val input = input_staged()
+                val floored = floor(input).to[AccumResidualType]
+                val diff = input - floored
+                val residual_pair = scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
                 val beqz = bit.infix_==(I32(0))
                 val step = mux(beqz, 0.to[ParameterIndex], strides(current_dimension).to[ParameterIndex])
                 // if bk == 0 then we take the weight to be 1-xk otherwise we use xk.
@@ -163,11 +162,13 @@ private object HypercubeLattice {
 
     private def join[T](x1: Seq[T], x2: Seq[T], func: (T, T) => T): Seq[T] = x1.flatMap { a => x2.map { b => func(a, b) } }
 
-    private def combine[T](xs: Seq[Seq[T]], func: (T, T) => T): Seq[Seq[T]] = xs.length match {
-      case 0 => throw new Exception("Empty reduction level")
-      case 1 => xs
-      case len if len % 2 == 0 => combine(List.tabulate(len / 2) { i => join(xs(2 * i), xs(2 * i + 1), func) }, func)
-      case len => combine(List.tabulate(len / 2) { i => join(xs(2 * i), xs(2 * i + 1), func) } :+ xs.last, func)
+    private def combine[T](xs: Seq[Seq[T]], func: (T, T) => T): Seq[Seq[T]] = {
+      xs.length match {
+        case 0 => throw new Exception("Empty reduction level:")
+        case 1 => xs
+        case len if len % 2 == 0 => combine(List.tabulate(len / 2) { i => join(xs(2 * i), xs(2 * i + 1), func) }, func)
+        case len => combine(List.tabulate(len / 2) { i => join(xs(2 * i), xs(2 * i + 1), func) } :+ xs.last, func)
+      }
     }
   }
 

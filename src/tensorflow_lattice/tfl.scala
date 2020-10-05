@@ -33,7 +33,7 @@ object tfl extends PWLCalibration with Lattice {
         () => v
       }
 
-      lazy val shape: Seq[I32] = arg.shape
+      lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
     }
   }
 
@@ -124,6 +124,7 @@ object tf extends Concatenation with Blas3 {
 
         {
           import spatial.dsl._
+          print(r"Gather")
           print(r"Input Index:")
           index foreach {x => print(r" ${x}")}
           println(r"")

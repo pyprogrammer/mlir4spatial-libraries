@@ -21,6 +21,7 @@ object utils {
 
   private var checkpoints = -1
   def checkpoint(name: Option[String])(implicit state: argon.State, srcCtx: SrcCtx): Void = {
+    if (!mlir_libraries.Options.Debug) { return new Void() }
     val reg: Reg[Bit] = name match {
       case Some(name) =>
         Reg[Bit](0.to[Bit], s"ckpt_$name").dontTouch

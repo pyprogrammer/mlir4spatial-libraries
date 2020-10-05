@@ -84,7 +84,7 @@ object LatticeWithMaterializeTest {
           shape = LatticeWithMaterializeTest.lattice_shape,
           units = 1,
           lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(input_sram)
-      val materialized = mlir_libraries.spatiallib.Materialize()(lattice)
+      val materialized = mlir_libraries.spatiallib.MaterializeSRAM()(lattice)
       Pipe.Foreach(iterations by 1) { i =>
         output_sram(i) = materialized(Seq(i, I32(0)), Set(Bit(true)))()
       }
@@ -138,8 +138,8 @@ object LatticeWithMaterializeTest {
           shape = LatticeWithMaterializeTest.lattice_shape,
           units = 1,
           lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(input_sram)
-      val materialized = mlir_libraries.spatiallib.Materialize()(
-        simpleTransform(mlir_libraries.spatiallib.Materialize()(lattice)))
+      val materialized = mlir_libraries.spatiallib.MaterializeSRAM()(
+        simpleTransform(mlir_libraries.spatiallib.MaterializeSRAM()(lattice)))
       Pipe.Foreach(iterations by 1) { i =>
         output_sram(i) = materialized(Seq(i, I32(0)), Set(Bit(true)))()
       }
@@ -183,7 +183,7 @@ object LatticeWithMaterializeTest {
       CoprocessorScope {
         scope =>
           implicit val sc = scope
-          mlir_libraries.spatiallib.CoprocessorStage()(lattice)
+          mlir_libraries.spatiallib.MaterializeCoproc()(lattice)
       } {
         materialized =>
           Pipe.Foreach(iterations by 1) { i =>

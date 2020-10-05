@@ -44,24 +44,35 @@ class DumpScope(implicit state: argon.State) {
 
 
   def dump[T: Num](name: String)(arg: types.ReadableND[T]): types.ReadableND[T] = {
-    val dram = escape {
+    val (validDram, dram) = escape {
       val escapeDram = DRAM[T](arg.size)
       escapeDram.explicitName = f"dump_DRAM_$name"
-      escapeDram
+
+      val validDram = DRAM[I32](arg.size)
+      (validDram, escapeDram)
     }
 
-    val intermediate = RegFile[T](arg.size).nonbuffer
+    val intermediate = SRAM[T](arg.size).nonbuffer.nofission
     intermediate.shouldIgnoreConflicts = true
     intermediate.explicitName = f"dump_SRAM_$name"
+
+    val accessSram = SRAM[I32](arg.size).nonbuffer.nofission
+    accessSram.shouldIgnoreConflicts = true
+    accessSram.explicitName = f"dump_SRAM_valid_$name"
+
     val strides = computeStrides(arg.shape)
 
     stores.append(() => {
       dram store intermediate
+      validDram store accessSram
     })
 
     dumps.append(() => {
       val mem = getMem(dram)
       writeCSV1D(mem, f"${name}.csv", delim = ",")
+
+      val valid = getMem(validDram)
+      writeCSV1D(valid, f"${name}_valid.csv", delim = ",")
     })
 
     new types.ReadableND[T] {
@@ -70,7 +81,8 @@ class DumpScope(implicit state: argon.State) {
 
         () => {
           val result = tmp()
-          argon.stage(spatial.node.RegFileWrite(intermediate,result,Seq(utils.computeIndex(index, strides)), ens))
+          argon.stage(spatial.node.SRAMWrite(intermediate,result,Seq(utils.computeIndex(index, strides)), ens))
+          argon.stage(spatial.node.SRAMWrite(accessSram,1.to[I32],Seq(utils.computeIndex(index, strides)), ens))
           result
         }
       }

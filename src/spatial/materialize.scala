@@ -5,6 +5,15 @@ import spatial.metadata.memory._
 
 // For MLIR-spatial native operations
 trait Materialization {
+  def Materialize[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])
+                         (implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
+    if (Options.Coproc) {
+      MaterializeCoproc(parallelization, uptime)(arg)
+    } else {
+      MaterializeSRAM(parallelization, uptime)(arg)
+    }
+  }
+
   private def computeStrides[T: Num](shape: Seq[T])(implicit state: argon.State): Seq[T] = {
     val strides = shape.scanRight(1.to[T]) {
       case (s, stride) =>
@@ -31,7 +40,6 @@ trait Materialization {
     // computes par factors for each dimension.
     val factors = shape flatMap factorize
     val factorization = (factors.sorted.groupBy(x => x) map {case (v, l) => (v, l.length)}).toSeq.sortBy(_._1).dropWhile(_._1 == 1)
-    println(s"Factorization: $factorization")
     var bestPar = BigInt(Int.MaxValue)
     def process(counts: Seq[(Int, Int)], curPar: BigInt): Option[(Seq[Int], BigInt)] = {
       counts match {
@@ -54,7 +62,6 @@ trait Materialization {
                 // best match from the recursive allocation
                 process(rest, newPar) match {
                   case Some(recursive) =>
-                    println(s"Recursive: $recursive")
                     if (recursive._2 < parallelization) {
                       // Insufficient parallelization
                       Seq.empty
@@ -75,7 +82,6 @@ trait Materialization {
           if (subresults.isEmpty) {
             None
           } else {
-            println(s"SubResults: $subresults")
             Some(subresults.minBy(_._2))
           }
         case Nil =>
@@ -90,7 +96,6 @@ trait Materialization {
     process(factorization, 1) match {
       case Some((factorPowers, _)) =>
         var remainingPar = (((factorization map {x => BigInt(x._1)}) zip factorPowers) map {case (factor, power) => factor.pow(power)}).product
-        println(s"Factorization: $factorPowers, total: $remainingPar")
         shape map {
           part =>
             val alloc = remainingPar.gcd(part)
@@ -105,7 +110,7 @@ trait Materialization {
   }
 
   var materialization_cnt = -1
-  def Materialize[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State): types.ReadableND[T] = {
+  def MaterializeSRAM[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State): types.ReadableND[T] = {
     materialization_cnt += 1
     val materialization_capture = materialization_cnt
 
@@ -154,7 +159,6 @@ trait Materialization {
       override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
         metacnt += 1
         val capture = metacnt
-        println(s"Materialize: $materialization_capture $capture")
         () => {
           val ind = utils.computeIndex(index, strides)
           val tmp = intermediate(ind)
@@ -164,7 +168,7 @@ trait Materialization {
     }
   }
 
-  def CoprocessorStage[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
+  def MaterializeCoproc[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
 
     val coprocessors = {
       Range(0, parallelization) map { _ =>

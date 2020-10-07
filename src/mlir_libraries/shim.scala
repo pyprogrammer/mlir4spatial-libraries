@@ -1,6 +1,6 @@
 package mlir_libraries
 
-import argon.stage
+import argon.{lang, stage}
 import forge.tags.stateful
 import spatial.dsl
 import spatial.node.SRAMRead
@@ -11,8 +11,27 @@ object types {
     def size(implicit state: argon.State): spatial.dsl.I32 = shape reduce {_ * _}
   }
 
+  trait Interface[T] {
+
+    // Deq must be in same order as Enq. Deq having this interface is simply for 0-cost abstractions.
+    def enq(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): argon.lang.Void
+    def deq(index: Seq[spatial.dsl.I32], ens:Set[spatial.dsl.Bit]): T
+  }
+
   trait ReadableND[T] extends Shaped {
-    def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T
+    def getInterface: Interface[T]
+  }
+
+  trait PureReadable[T] extends ReadableND[T] {
+    def execute(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): T
+
+    override def getInterface: Interface[T] = {
+      new Interface[T] {
+        override def enq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): lang.Void = {new lang.Void}
+
+        override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = execute(index, ens)
+      }
+    }
   }
 }
 
@@ -21,22 +40,12 @@ object ConversionImplicits {
   import spatial.libdsl._
 
   @stateful implicit def SRAMToND[T:Bits, C[U]](rm: SRAM[T,C])(implicit srcCtx: SrcCtx): ReadableND[T] = {
-    new ReadableND[T] {
-      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
+    new PureReadable[T] {
+      override def execute(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]) = {
         assert(index.length == shape.length, f"Cannot read from a ReadableND converted to ND: ${index}, $srcCtx")
-        () => stage(SRAMRead(rm, index, ens))
+        stage(SRAMRead(rm, index, ens))
       }
       override lazy val shape: Seq[I32] = rm.dims
-    }
-  }
-
-  @stateful implicit def NDCast[T: Bits, U: Bits](src: ReadableND[T])(implicit conv: argon.Cast[T, U]): ReadableND[U] = {
-    new ReadableND[U] {
-      override def apply(index: Seq[dsl.I32], ens: Set[dsl.Bit]): () => U = {
-        val t = src(index, ens)
-        () => t().to[U]
-      }
-      override lazy val shape = src.shape
     }
   }
 

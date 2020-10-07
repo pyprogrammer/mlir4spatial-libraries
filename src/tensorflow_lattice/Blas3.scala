@@ -27,13 +27,6 @@ trait Blas3 {
         // Given C = AB, we have C_ij = Sum_k A_ik B_kj
         val reads = Range(0, input_units) map { i => arg(Seq(batch, I32(i)), ens)}
 
-        {
-          import spatial.dsl._
-          print(r"Dense Layer:")
-          reads map {read => print(r" ${read()}")}
-          println("")
-        }
-
         () =>
           {
             bias_LUT(dim) + (Range(0, input_units) map { i => reads(i)() * kernel_lut(I32(i), dim)}).reduceTree{_+_}

@@ -68,20 +68,16 @@ trait PWLCalibration {
     new ReadableND[T] {
       // batch, unit -> batch, unit
       override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-        val d0 = index.head
         val d1 = index.last
-        val out = Reg[T](0).conflictable
+        val out = Reg[T](0).conflictable.buffer
         val staged = if (degenerate_PWL_input) arg(Seq(index.head, I32(0)), ens) else arg(index, ens)
-        val value = staged()
 
-        {
-          import spatial.dsl._
-          println(r"PWL Input ID: $id ($d0: ${d0.ctx}, $d1: ${d1.ctx}): $value")
-        }
-
+        val v = Reg[T]
+        v := staged()
+        val value = v.value
+        // Handles cases where the input is within the keypoints.
+        // Still need to handle the cases where the input is less than the first keypoint or larger than the last keypoint.
         Parallel {
-          // Handles cases where the input is within the keypoints.
-          // Still need to handle the cases where the input is less than the first keypoint or larger than the last keypoint.
           Pipe.Foreach(iterations by 1 par I32(par_factor)) {
             kp_index =>
               val input_kp = input_kp_LUT(kp_index)
@@ -96,30 +92,12 @@ trait PWLCalibration {
           Pipe {
             val before_first = input_keypoints_array.head.toUnchecked[T] >= value
             out.write(cumsum_LUT(d1, I32(0)), before_first)
-
-            {
-              import spatial.dsl._
-              println(r"Before First: $before_first => ${cumsum_LUT(d1, I32(0))}")
-            }
           }
-
           Pipe {
             val after_last = input_keypoints_array.last.toUnchecked[T] <= value
             out.write(cumsum_LUT(d1, I32(num_keypoints - 1)), after_last)
-
-            {
-              import spatial.dsl._
-              println(r"After Last: $after_last => ${cumsum_LUT(d1, I32(num_keypoints - 1))}")
-            }
           }
         }
-
-
-        {
-          import spatial.dsl._
-          println(r"Output: $out")
-        }
-
         () => out.value
       }
 

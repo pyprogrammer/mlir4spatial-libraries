@@ -67,7 +67,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
   coprocessorScope.register(instantiate)
 
   protected val SCALE_FACTOR = 4
-  protected val INPUT_FIFO_DEPTH = 16
+  protected val INPUT_FIFO_DEPTH = 128
   protected val OUTPUT_FIFO_DEPTH = 16
 
   // Coprocessors have input fifo sets, output fifo sets, and a control stream.
@@ -84,7 +84,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
 
   def instantiate(): Void = {
-    assert(!frozen)
+    assert(!frozen, "Shouldn't be frozen yet")
     frozen = true
 
     if (id_fifos.size == 0) {
@@ -175,23 +175,21 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
     var enqueued = false
     var dequeued = false
 
-    def enq(input: Seq[In_T]): Void = {
-      assert(!enqueued)
+    def enq(input: Seq[In_T], en: Bit = Bit(true)): Void = {
       enqueued = true
       Parallel {
-        identity_fifo.enq(I32(id))
+        identity_fifo.enq(I32(id), en)
 
         (input_stream zip input) foreach {
-          case (fifo, in) => fifo.enq(in)
+          case (fifo, in) => fifo.enq(in, en)
         }
       }
     }
 
-    def deq(): Seq[Out_T] = {
-      assert(!dequeued)
+    def deq(en: Bit = Bit(true)): Seq[Out_T] = {
       dequeued = true
       output_stream map {
-        _.deq
+        _.deq(en)
       }
     }
   }

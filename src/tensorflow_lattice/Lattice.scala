@@ -36,7 +36,7 @@ trait Lattice {
     } else {
       tf.expand_dims(axis = 1)(arg)
     }
-    assert(expanded_arg.shape.length == 3)
+    assert(expanded_arg.shape.length == 3, "Expanded arg should have rank 3")
 
     // Get all vertices of hypercube and reverse so that these are opposite the hypervolumes
     val corners: Seq[Seq[scala.Int]] = HypercubeLattice.allCorners(Seq.fill(parallel_dimensions)(1)).reverse

@@ -5,7 +5,7 @@ import spatial.metadata.memory._
 
 // For MLIR-spatial native operations
 trait Materialization {
-  def Materialize[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])
+  @forge.tags.api def Materialize[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])
                          (implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
     if (Options.Coproc) {
       MaterializeCoproc(parallelization, uptime)(arg)
@@ -190,19 +190,20 @@ trait Materialization {
         println(s"Coprocessor Use: $count, assigned to ${count % parallelization}")
         val coprocessor = coprocessors(count % parallelization)
         count += 1
-        val result = Reg[T]
         val interface = coprocessor.interface
         val en = ens.toSeq reduceTree {_ && _}
-        ifThenElse(en, () => {
-          Pipe {
-            Stream {
-              interface.enq(index)
-            }
-            Stream {
-              result := interface.deq().head
-            }
-          }}, () => {})
-        () => result.value
+//        val fetched = Reg[Bit](false).buffer
+        Stream {
+          interface.enq(index, en)
+        }
+
+        () => {
+          val result = Reg[T]
+          Stream {
+            result := interface.deq(en).head
+          }
+          result.value
+        }
       }
     }
   }

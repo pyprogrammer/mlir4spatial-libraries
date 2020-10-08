@@ -1,7 +1,8 @@
 package mlir_libraries
 
 import spatial.libdsl._
-import spatial.metadata.memory._
+import _root_.spatial.dsl
+import _root_.spatial.metadata.memory._
 
 // For MLIR-spatial native operations
 trait Materialization {
@@ -130,54 +131,97 @@ trait Materialization {
       case _ => Seq.empty
     }
 
-    val parFactors = computeParFactors(shape, parallelization)
-    println(s"Requested Par: $parallelization, Recieved: $parFactors")
-    assert(parFactors.length == shape.length)
-    val parIterator = parFactors.toIterator
-    val ctrs = arg.shape map {
-      case argon.Const(s) =>
-        Counter.from(I32(s.toInt) by I32(1) par I32(parIterator.next()))
-      case unk =>
-        Counter.from(unk by I32(1))
-    }
+//    val parFactors = computeParFactors(shape, parallelization)
+//    println(s"Requested Par: $parallelization, Recieved: $parFactors")
+//    assert(parFactors.length == shape.length)
+//    val parIterator = parFactors.toIterator
+//    val ctrs = arg.shape map {
+//      case argon.Const(s) =>
+//        Counter.from(I32(s.toInt) by I32(1) par I32(parIterator.next()))
+//      case unk =>
+//        Counter.from(unk by I32(1))
+//    }
 
-//    val ctrs = arg.shape.zipWithIndex map { case(x, ind) => Counter.from(x by I32(1) par I32(if (ind == arg.shape.size - 1) parallelization else 1)) }
+    val ctrs = arg.shape.zipWithIndex map { case(x, ind) => Counter.from(x by I32(1)) }
+
+    val interface = arg.getInterface
 
     Pipe.Foreach(ctrs) {
       nd_index => {
-        val index = utils.computeIndex(nd_index, strides)
-        intermediate(index) = arg(nd_index, Set(Bit(true)))()
+//        val index = utils.computeIndex(nd_index, strides)
+        interface.enq(nd_index, Set(Bit(true)))
+//        intermediate(index) = arg(nd_index, Set(Bit(true)))()
       }
     }
 
-    retimeGate()
+    val finished = Reg[Bit](false)
+
+    Pipe {
+      Pipe.Foreach(ctrs) {
+        nd_index => {
+          val index = utils.computeIndex(nd_index, strides)
+          interface.enq(nd_index, Set(Bit(true)))
+          intermediate(index) = interface.deq(nd_index, Set(Bit(true)))
+        }
+      }
+      retimeGate()
+      finished := true
+    }
 
     new types.ReadableND[T] {
-      override lazy val shape = arg.shape
+      override val shape: Seq[dsl.I32] = arg.shape
 
-      var metacnt = -1
-      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-        metacnt += 1
-        val capture = metacnt
-        () => {
-          val ind = utils.computeIndex(index, strides)
-          val tmp = intermediate(ind)
-          tmp
+      override def getInterface: types.Interface[T] = {
+        new types.Interface[T] {
+          override def enq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): Void = {}
+
+          override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = {
+            // wait until finished
+            val break = Reg[Bit](false)
+            Pipe(breakWhen = break) {
+              Foreach(*) {
+                _ =>
+                  break := finished
+              }
+            }
+            intermediate(utils.computeIndex(index, strides))
+          }
         }
       }
     }
+
+//    new types.ReadableND[T] {
+//      override lazy val shape = arg.shape
+//
+//      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
+//        () => {
+//          val ind = utils.computeIndex(index, strides)
+//          val tmp = intermediate(ind)
+//          tmp
+//        }
+//      }
+//    }
   }
 
   def MaterializeCoproc[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
 
     val coprocessors = {
       Range(0, parallelization) map { _ =>
+        val subInterface = arg.getInterface
         new Coprocessor[I32, T](arg.shape.size, 1) {
           override def coprocessorScope: CoprocessorScope = cps
 
-          override def execute(inputs: Seq[I32]): Seq[T] = {
-            Seq(arg(inputs, Set(Bit(true)))())
+          override def enq(inputs: Seq[I32]): Unit = {
+            subInterface.enq(inputs, Set(Bit(true)))
           }
+
+          override def deq(inputs: Seq[I32]): Seq[T] = {
+            Seq(subInterface.deq(inputs, Set(Bit(true))))
+          }
+
+//          override def execute(inputs: Seq[I32]): Seq[T] = {
+//            Seq(arg(inputs, Set(Bit(true)))())
+//          }
         }
       }
     }
@@ -186,23 +230,42 @@ trait Materialization {
       override lazy val shape = arg.shape
 
       var count = 0
-      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-        println(s"Coprocessor Use: $count, assigned to ${count % parallelization}")
-        val coprocessor = coprocessors(count % parallelization)
+      def getCount() = {
+        val cnt = count
         count += 1
-        val interface = coprocessor.interface
-        val en = ens.toSeq reduceTree {_ && _}
-//        val fetched = Reg[Bit](false).buffer
-        Stream {
-          interface.enq(index, en)
-        }
+        cnt
+      }
 
-        () => {
-          val result = Reg[T]
-          Stream {
-            result := interface.deq(en).head
+      //      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
+      //        println(s"Coprocessor Use: $count, assigned to ${count % parallelization}")
+      //        val coprocessor = coprocessors(count % parallelization)
+      //        count += 1
+      //        val interface = coprocessor.interface
+      //        val en = ens.toSeq reduceTree {_ && _}
+      ////        val fetched = Reg[Bit](false).buffer
+      //        Stream {
+      //          interface.enq(index, en)
+      //        }
+      //
+      //        () => {
+      //          val result = Reg[T]
+      //          Stream {
+      //            result := interface.deq(en).head
+      //          }
+      //          result.value
+      //        }
+      //      }
+      override def getInterface: types.Interface[T] = {
+        val coproc = coprocessors(getCount() % parallelization)
+        val interface = coproc.interface
+        new types.Interface[T] {
+          override def enq(index: Seq[I32], ens: Set[Bit]): Void = {
+            interface.enq(index, ens.toSeq reduceTree {_ && _})
           }
-          result.value
+
+          override def deq(index: Seq[I32], ens: Set[Bit]): T = {
+            interface.deq(ens.toSeq reduceTree {_ && _}).head
+          }
         }
       }
     }

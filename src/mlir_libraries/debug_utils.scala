@@ -14,6 +14,33 @@ object debug_utils {
     }
     result.value
   }
+
+  def TagVector[T: Bits](name: String, values: Seq[T])(implicit state: argon.State): Void = {
+    if (!Options.Debug) { return new Void }
+    {
+      // For scala sim
+      import spatial.dsl._
+      print(r"${name} =")
+    }
+    values.zipWithIndex foreach {
+      case (value, index) =>
+        val reg = Reg[T].dontTouch
+        reg.explicitName = f"${name}_$index"
+        reg := value
+
+        {
+          // For scala sim
+          import spatial.dsl._
+          print(r" $value")
+        }
+    }
+
+    {
+      // For scala sim
+      import spatial.dsl._
+      println(r"")
+    }
+  }
 }
 
 class DumpScope(implicit state: argon.State) {
@@ -43,53 +70,53 @@ class DumpScope(implicit state: argon.State) {
 
 
 
-  def dump[T: Num](name: String)(arg: types.ReadableND[T]): types.ReadableND[T] = {
-    val (validDram, dram) = escape {
-      val escapeDram = DRAM[T](arg.size)
-      escapeDram.explicitName = f"dump_DRAM_$name"
-
-      val validDram = DRAM[I32](arg.size)
-      (validDram, escapeDram)
-    }
-
-    val intermediate = SRAM[T](arg.size).nonbuffer.nofission
-    intermediate.shouldIgnoreConflicts = true
-    intermediate.explicitName = f"dump_SRAM_$name"
-
-    val accessSram = SRAM[I32](arg.size).nonbuffer.nofission
-    accessSram.shouldIgnoreConflicts = true
-    accessSram.explicitName = f"dump_SRAM_valid_$name"
-
-    val strides = computeStrides(arg.shape)
-
-    stores.append(() => {
-      dram store intermediate
-      validDram store accessSram
-    })
-
-    dumps.append(() => {
-      val mem = getMem(dram)
-      writeCSV1D(mem, f"${name}.csv", delim = ",")
-
-      val valid = getMem(validDram)
-      writeCSV1D(valid, f"${name}_valid.csv", delim = ",")
-    })
-
-    new types.ReadableND[T] {
-      override def apply(index: Seq[dsl.I32], ens: Set[dsl.Bit]): () => T = {
-        val tmp = arg(index, ens)
-
-        () => {
-          val result = tmp()
-          argon.stage(spatial.node.SRAMWrite(intermediate,result,Seq(utils.computeIndex(index, strides)), ens))
-          argon.stage(spatial.node.SRAMWrite(accessSram,1.to[I32],Seq(utils.computeIndex(index, strides)), ens))
-          result
-        }
-      }
-
-      override val shape: Seq[dsl.I32] = arg.shape
-    }
-  }
+//  def dump[T: Num](name: String)(arg: types.ReadableND[T]): types.ReadableND[T] = {
+//    val (validDram, dram) = escape {
+//      val escapeDram = DRAM[T](arg.size)
+//      escapeDram.explicitName = f"dump_DRAM_$name"
+//
+//      val validDram = DRAM[I32](arg.size)
+//      (validDram, escapeDram)
+//    }
+//
+//    val intermediate = SRAM[T](arg.size).nonbuffer.nofission
+//    intermediate.shouldIgnoreConflicts = true
+//    intermediate.explicitName = f"dump_SRAM_$name"
+//
+//    val accessSram = SRAM[I32](arg.size).nonbuffer.nofission
+//    accessSram.shouldIgnoreConflicts = true
+//    accessSram.explicitName = f"dump_SRAM_valid_$name"
+//
+//    val strides = computeStrides(arg.shape)
+//
+//    stores.append(() => {
+//      dram store intermediate
+//      validDram store accessSram
+//    })
+//
+//    dumps.append(() => {
+//      val mem = getMem(dram)
+//      writeCSV1D(mem, f"${name}.csv", delim = ",")
+//
+//      val valid = getMem(validDram)
+//      writeCSV1D(valid, f"${name}_valid.csv", delim = ",")
+//    })
+//
+//    new types.ReadableND[T] {
+//      override def apply(index: Seq[dsl.I32], ens: Set[dsl.Bit]): () => T = {
+//        val tmp = arg(index, ens)
+//
+//        () => {
+//          val result = tmp()
+//          argon.stage(spatial.node.SRAMWrite(intermediate,result,Seq(utils.computeIndex(index, strides)), ens))
+//          argon.stage(spatial.node.SRAMWrite(accessSram,1.to[I32],Seq(utils.computeIndex(index, strides)), ens))
+//          result
+//        }
+//      }
+//
+//      override val shape: Seq[dsl.I32] = arg.shape
+//    }
+//  }
 
   def store: Unit = {
     stores foreach {x => x()}

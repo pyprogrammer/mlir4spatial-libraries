@@ -1,8 +1,9 @@
 package tensorflow_lattice
 
 import mlir_libraries.types.ReadableND
-import mlir_libraries.{Tensor => MLTensor}
+import mlir_libraries.{types, Tensor => MLTensor}
 import spatial.libdsl._
+import _root_.spatial.dsl
 
 trait PWLCalibration {
 
@@ -10,7 +11,7 @@ trait PWLCalibration {
   def getPWLId() = {
     val tmp = pwl_id
     pwl_id += 1
-    pwl_id
+    tmp
   }
 
   def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: MLTensor[scala.Double], input_keypoints: MLTensor[scala.Double])(arg: ReadableND[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig) = {
@@ -67,42 +68,80 @@ trait PWLCalibration {
 
     new ReadableND[T] {
       // batch, unit -> batch, unit
-      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-        val d1 = index.last
-        val staged = if (degenerate_PWL_input) arg(Seq(index.head, I32(0)), ens) else arg(index, ens)
-
-        val v = Reg[T]
-        v := staged()
-        val value = v.value
-        // Handles cases where the input is within the keypoints.
-        // Still need to handle the cases where the input is less than the first keypoint or larger than the last keypoint.
-        val pwl = Pipe.Reduce(Reg[T])(iterations by 1 par I32(par_factor)) {
-          kp_index =>
-            val input_kp = input_kp_LUT(kp_index)
-            val next_kp = input_kp_LUT(kp_index + I32(1))
-            val scaled_diff = scaled_diffs_LUT(d1, kp_index)
-            val offset = value - input_kp
-            val is_valid = (input_kp < value) && (value <= next_kp)
-            val output = cumsum_LUT(d1, kp_index) + offset * scaled_diff
-            mux(is_valid, output, 0.to[T])
-        }{_ + _}
-        // Handle Edge Cases
-        val front_val = cumsum_LUT(d1, I32(0))
-        val back_val = cumsum_LUT(d1, I32(num_keypoints - 1))
+//      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
+//        val d1 = index.last
+//        val staged = if (degenerate_PWL_input) arg(Seq(index.head, I32(0)), ens) else arg(index, ens)
 //
-//        out.write(cumsum_LUT(d1, I32(0)), before_first)
+//        val v = Reg[T]
+//        v := staged()
+//        val value = v.value
+//        // Handles cases where the input is within the keypoints.
+//        // Still need to handle the cases where the input is less than the first keypoint or larger than the last keypoint.
+//        val pwl = Pipe.Reduce(Reg[T])(iterations by 1 par I32(par_factor)) {
+//          kp_index =>
+//            val input_kp = input_kp_LUT(kp_index)
+//            val next_kp = input_kp_LUT(kp_index + I32(1))
+//            val scaled_diff = scaled_diffs_LUT(d1, kp_index)
+//            val offset = value - input_kp
+//            val is_valid = (input_kp < value) && (value <= next_kp)
+//            val output = cumsum_LUT(d1, kp_index) + offset * scaled_diff
+//            mux(is_valid, output, 0.to[T])
+//        }{_ + _}
+//        // Handle Edge Cases
+//        val front_val = cumsum_LUT(d1, I32(0))
+//        val back_val = cumsum_LUT(d1, I32(num_keypoints - 1))
+//        () => {
+//          val before_first = input_keypoints_array.head.toUnchecked[T] >= value
+//          val after_last = input_keypoints_array.last.toUnchecked[T] <= value
 //
-//        out.write(cumsum_LUT(d1, I32(num_keypoints - 1)), after_last)
-        () => {
-          val before_first = input_keypoints_array.head.toUnchecked[T] >= value
-          val after_last = input_keypoints_array.last.toUnchecked[T] <= value
+//          {
+//            import spatial.dsl._
+//            println(r"Input: $value, before_first: $before_first -> $front_val, after_last: $after_last -> $back_val, pwl: $pwl")
+//          }
+//
+//          priorityMux(Seq(before_first, after_last, !before_first && !after_last), Seq(front_val, back_val, pwl))
+//        }
+//      }
 
-          {
-            import spatial.dsl._
-            println(r"Input: $value, before_first: $before_first -> $front_val, after_last: $after_last -> $back_val, pwl: $pwl")
+      override def getInterface: types.Interface[T] = {
+        val subInterface = arg.getInterface
+        new types.Interface[T] {
+          def getRealIndex(index: Seq[I32]) = {
+            if (degenerate_PWL_input) index.dropRight(1) ++ Seq(I32(0)) else index
           }
 
-          priorityMux(Seq(before_first, after_last, !before_first && !after_last), Seq(front_val, back_val, pwl))
+          override def enq(index: Seq[I32], ens: Set[Bit]): Void = {
+            subInterface.enq(getRealIndex(index), ens)
+          }
+
+          override def deq(index: Seq[I32], ens: Set[Bit]): T = {
+            val value = subInterface.deq(getRealIndex(index), ens)
+            val d1 = index.last
+            // Handles cases where the input is within the keypoints.
+            // Still need to handle the cases where the input is less than the first keypoint or larger than the last keypoint.
+            val pwl = Pipe.Reduce(Reg[T])(iterations by 1 par I32(par_factor)) {
+              kp_index =>
+                val input_kp = input_kp_LUT(kp_index)
+                val next_kp = input_kp_LUT(kp_index + I32(1))
+                val scaled_diff = scaled_diffs_LUT(d1, kp_index)
+                val offset = value - input_kp
+                val is_valid = (input_kp < value) && (value <= next_kp)
+                val output = cumsum_LUT(d1, kp_index) + offset * scaled_diff
+                mux(is_valid, output, 0.to[T])
+            }{_ + _}
+            // Handle Edge Cases
+            val front_val = cumsum_LUT(d1, I32(0))
+            val back_val = cumsum_LUT(d1, I32(num_keypoints - 1))
+            val before_first = input_keypoints_array.head.toUnchecked[T] >= value
+            val after_last = input_keypoints_array.last.toUnchecked[T] <= value
+
+            {
+              import spatial.dsl._
+              println(r"Input: $value, before_first: $before_first -> $front_val, after_last: $after_last -> $back_val, pwl: $pwl")
+            }
+
+            priorityMux(Seq(before_first, after_last, !before_first && !after_last), Seq(front_val, back_val, pwl))
+          }
         }
       }
 

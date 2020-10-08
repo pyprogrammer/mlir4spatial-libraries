@@ -2,10 +2,10 @@ package tensorflow_lattice
 
 import mlir_libraries.types._
 import spatial.libdsl._
-import _root_.spatial.dsl
 
 import scala.reflect.ClassTag
 import mlir_libraries.{Tensor => MLTensor}
+import _root_.spatial.dsl
 
 object tfl extends PWLCalibration with Lattice {
 
@@ -25,13 +25,29 @@ object tfl extends PWLCalibration with Lattice {
     val param_list = categorical_calibration_kernel_array.flatten.map { x => Bits(x.toUnchecked[T]) }.toSeq
     val params = LUT[T](categorical_calibration_kernel_array.length, units)(param_list:_*)
     new ReadableND[T] {
-      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-        val initial_ind = index.dropRight(1)
-        val unit = index.last
-        val value = if (degenerate_PWL_input) { arg(initial_ind :+ I32(0), ens)() } else { arg(index, ens)() }
-        val v = params(value.to[I32], unit)
-        () => v
+      override def getInterface: Interface[T] = {
+        val subInterface = arg.getInterface
+        new Interface[T] {
+          def getRealIndex(index: Seq[I32]) = {
+            if (degenerate_PWL_input) index.dropRight(1) ++ Seq(I32(0)) else index
+          }
+
+          override def enq(index: Seq[I32], ens: Set[Bit]): Void = subInterface.enq(getRealIndex(index), ens)
+
+          override def deq(index: Seq[I32], ens: Set[Bit]): T = {
+            val value = subInterface.deq(getRealIndex(index), ens)
+            params(value.to[I32], index.last)
+          }
+        }
       }
+
+//      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
+//        val initial_ind = index.dropRight(1)
+//        val unit = index.last
+//        val value = if (degenerate_PWL_input) { arg(initial_ind :+ I32(0), ens)() } else { arg(index, ens)() }
+//        val v = params(value.to[I32], unit)
+//        () => v
+//      }
 
       lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
     }
@@ -47,22 +63,20 @@ object tfl extends PWLCalibration with Lattice {
 object tf extends Concatenation with Blas3 {
 
   def Minimum[T:Num](constant: Double)(arg:ReadableND[T])(implicit state:argon.State): ReadableND[T] = {
-    new ReadableND[T] {
-      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-        val tmp = arg(index, ens)
-        () => min(tmp(), constant)
+    new ElementWiseReadable[T] {
+      override def func(x: T): T = {
+        min(x, constant)
       }
-      lazy val shape = arg.shape
+      override def subReadable: ReadableND[T] = arg
     }
   }
 
   def Maximum[T:Num](constant: Double)(arg:ReadableND[T])(implicit state:argon.State): ReadableND[T] = {
-    new ReadableND[T] {
-      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-        val tmp = arg(index, ens)
-        () => max(tmp(), constant)
+    new ElementWiseReadable[T] {
+      override def func(x: T): T = {
+        max(x, constant)
       }
-      lazy val shape = arg.shape
+      override def subReadable: ReadableND[T] = arg
     }
   }
 
@@ -79,16 +93,17 @@ object tf extends Concatenation with Blas3 {
 
     assert(mapping.values.size == mapping.values.toSeq.distinct.size, s"Target Axes must be unique! $mapping")
 
-    new ReadableND[T] {
-      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
+    new ReindexingReadable[T] {
+      override def subReadable: ReadableND[T] = arg
+
+      override def remapIndex(index: Seq[dsl.I32]): Seq[dsl.I32] = {
         val remapped = index.zipWithIndex map {
           case (i, dimension) => (mapping.getOrElse(dimension, dimension), i)
         }
-        val new_index = remapped sortWith {case (a, b) => a._1 < b._1 } map {_._2}
-        arg(new_index, ens)
+        remapped sortWith {case (a, b) => a._1 < b._1 } map {_._2}
       }
 
-      override lazy val shape: Seq[dsl.I32] = {
+      override lazy val shape: Seq[I32] = {
         val remapped = arg.shape.zipWithIndex map {
           case (i, dimension) => (mapping.getOrElse(dimension, dimension), i)
         }
@@ -104,8 +119,10 @@ object tf extends Concatenation with Blas3 {
     val flattened_indices = indices.flatten
     val lut = LUT[I32](flattened_indices.length)((flattened_indices map {I32(_)}):_*)
 
-    new ReadableND[T] {
-      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
+    new ReindexingReadable[T] {
+      override def subReadable: ReadableND[T] = arg
+
+      override def remapIndex(index: Seq[spatial.dsl.I32]): Seq[I32] = {
         // The first and last parts of the index are untouched.
         val initial_index = index.take(wrapped_axis)
         val last_index = index.drop(wrapped_axis + indices.rank)
@@ -133,7 +150,7 @@ object tf extends Concatenation with Blas3 {
           println(r"")
         }
 
-        arg(new_index, ens)
+        new_index
       }
 
       override lazy val shape: Seq[dsl.I32] = {

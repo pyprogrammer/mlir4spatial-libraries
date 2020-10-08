@@ -75,13 +75,16 @@ object LatticeTest {
       val input_sram = SRAM[T](iterations, dimensions)
       input_sram load input_DRAM(0 :: iterations, 0 :: dimensions)
       val output_sram = SRAM[T](iterations)
+      val lattice =
+        tensorflow_lattice.tfl.Lattice(tp = "hypercube",
+          shape = MLTensor(values = scala.Array(2, 2, 2, 2, 2), shape=scala.Array(5)),
+          units = 1,
+          lattice_kernel = LatticeTest.lattice_kernel)(input_sram)
+
+      val interface = lattice.getInterface
       Pipe.Foreach(iterations by 1) { i =>
-        val lattice =
-          tensorflow_lattice.tfl.Lattice(tp = "hypercube",
-            shape = MLTensor(values = scala.Array(2, 2, 2, 2, 2), shape=scala.Array(5)),
-            units = 1,
-            lattice_kernel = LatticeTest.lattice_kernel)(input_sram)
-        output_sram(i) = lattice(Seq(i, I32(0)), Set(Bit(true)))()
+        interface.enq(Seq(i, I32(0)), Set(Bit(true)))
+        output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
       }
 
       output_DRAM store output_sram

@@ -40,10 +40,13 @@ object PWLCalibrationTest {
       val input_sram = SRAM[T](iterations, dimensions)
       input_sram load input_DRAM(0 :: iterations, 0 :: dimensions)
       val output_sram = SRAM[T](iterations)
+      val pwl =
+        tensorflow_lattice.tfl.PWLCalibration(pwl_calibration_kernel = PWLCalibrationTest.pwl_kernel, input_keypoints = PWLCalibrationTest.input_keypoints)(input_sram)
+
+      val interface = pwl.getInterface
       Pipe.Foreach(iterations by 1) { i =>
-        val pwl =
-          tensorflow_lattice.tfl.PWLCalibration(pwl_calibration_kernel = PWLCalibrationTest.pwl_kernel, input_keypoints = PWLCalibrationTest.input_keypoints)(input_sram)
-        output_sram(i) = pwl(Seq(i, I32(0)), Set(Bit(true)))()
+        interface.enq(Seq(i, I32(0)), Set(Bit(true)))
+        output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
       }
 
       output_DRAM store output_sram

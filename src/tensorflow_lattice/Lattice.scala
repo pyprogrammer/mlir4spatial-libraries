@@ -4,7 +4,7 @@ import mlir_libraries.types._
 import mlir_libraries.utils.checkpoint
 import spatial.libdsl._
 import mlir_libraries.{Tensor => MLTensor}
-import _root_.spatial.dsl
+import spatial.metadata.memory._
 
 trait Lattice {
 
@@ -44,105 +44,112 @@ trait Lattice {
 
     new ReadableND[T] {
       override def getInterface: Interface[T] = {
-        val parallelInterfaces = Range(0, parallel_dimensions) map {_ => arg.getInterface}
-        val sequentialInterface = num_loop_dimensions match {
-          case 0 => None
-          case other => Some(arg.getInterface)
+        val interfaces = Range(0, parallel_dimensions) map {
+          _ => expanded_arg.getInterface
         }
 
         new Interface[T] {
-          override def enq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): Void = {
+          override def enq(index: Seq[I32], ens: Set[Bit]): Void = {
             val batch = index(index.length - 2)
             val unit = index.last
-            Range(num_loop_dimensions, dimensions) zip parallelInterfaces foreach {
-              case (dim, interface) => interface.enq(Seq(batch, unit, I32(dim)), ens)
+            Range(0, dimensions) foreach {
+              dim => interfaces(dim % parallel_dimensions).enq(Seq(batch, unit, I32(dim)), ens)
             }
           }
 
-          override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = {
-            override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-              val batch = index(index.length - 2)
-              val unit = index.last
+          override def deq(index: Seq[I32], ens: Set[Bit]): T = {
+            val batch = index(index.length - 2)
+            val unit = index.last
 
-              val new_enable = if (ens.isEmpty) Set(Bit(true)) else ens
+            val intermediate_SRAM = RegFile[T](I32(dimensions))
+            intermediate_SRAM.explicitName = "LatticeInputs"
+            Range(0, dimensions) foreach {
+              dim =>
+                intermediate_SRAM(dim) = interfaces(dim % parallel_dimensions).deq(Seq(batch, unit, I32(dim)), ens)
+            }
 
-              def recursive_fill(current_index: scala.Seq[ParameterIndex], base: ParameterIndex): OutputType = {
-                val current_dimension = current_index.size
-                checkpoint(s"LatticeLoop${current_dimension}_begin")
-                val result: OutputType = if (current_dimension == num_loop_dimensions) {
-                  // finish directly
+            val sramReads = Range(0, dimensions) map {
+              dim => intermediate_SRAM(I32(dim))
+            }
 
-                  val remainingInputs = Range(num_loop_dimensions, dimensions) map {
-                    dim => expanded_arg(Seq(batch, unit, I32(dim)), new_enable)
-                  } map {x => x()}
+            def recursive_fill(current_index: scala.Seq[ParameterIndex], base: ParameterIndex): OutputType = {
+              val current_dimension = current_index.size
+              checkpoint(s"LatticeLoop${current_dimension}_begin")
+              val result: OutputType = if (current_dimension == num_loop_dimensions) {
+                // finish directly
 
-                  val parallelResidualPairs = remainingInputs map {
-                    value =>
-                      val floored = floor(value).to[AccumResidualType]
-                      val diff = value - floored
-                      scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
-                  }
-
-                  println(s"Parallel pairs: $parallelResidualPairs, length: ${parallelResidualPairs.length}")
-
-                  val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(parallelResidualPairs: _*)(_ * _)
-
-                  val base_vec = (Range(num_loop_dimensions, dimensions) zip remainingInputs) map {
-                    case (dim, inpt) =>
-                      (lattice_shape(dim), mlir_libraries.Options.PO2Opt) match {
-                        case (2, true) =>
-                          0.to[ParameterIndex]
-                        case (shape, _) =>
-                          min(inpt.to[ParameterIndex], I32(shape - 1))
-                      }
-                  }
-
-                  println(s"Base Vec: $base_vec, Strides: ${strides.drop(num_loop_dimensions)}")
-
-                  val base_index = (base_vec zip strides.drop(num_loop_dimensions)) map { case (b, s) => b * s.to[ParameterIndex] } reduceTree { _ + _ }
-
-                  // Get flat index for each (corner + origin)
-                  val indices: Seq[ParameterIndex] = corners map {
-                    corner =>
-                      val offset = ((corner zip parallel_strides) map {
-                        case (cc, stride) =>
-                          cc * stride
-                      }).sum.to[ParameterIndex]
-                      base_index + base + offset
-                  }
-
-                  // Get weighted sum
-                  hypervolumes.map(_.to[OutputType]).zip(indices).map {
-                    case (hv, i) =>
-                      hv * params(i, unit)
-                  }.reduceTree {
-                    _ + _
-                  }
-                } else {
-                  val input_staged = expanded_arg(Seq(batch, unit, I32(current_dimension)), new_enable)
-                  // finish recursively.
-                  Pipe.Reduce(Reg[OutputType](0))(2 by 1) {
-                    bit =>
-                      val input = input_staged()
-                      val floored = floor(input).to[AccumResidualType]
-                      val diff = input - floored
-                      val residual_pair = scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
-                      val beqz = bit.infix_==(I32(0))
-                      val step = mux(beqz, 0.to[ParameterIndex], strides(current_dimension).to[ParameterIndex])
-                      // if bk == 0 then we take the weight to be 1-xk otherwise we use xk.
-                      val weight = mux(beqz, residual_pair(1), residual_pair(0))
-                      val recursive = recursive_fill(current_index :+ bit, base + step)
-                      recursive * weight.to[OutputType]
-                  } {
-                    _ + _
-                  }
+                val remainingInputs = Range(num_loop_dimensions, dimensions) map {
+                  dim => sramReads(dim)
                 }
 
-                checkpoint(s"LatticeLoop${current_dimension}_end")
-                result
+                val parallelResidualPairs = remainingInputs map {
+                  value =>
+                    val floored = floor(value).to[AccumResidualType]
+                    val diff = value - floored
+                    scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
+                }
+
+                mlir_libraries.debug_utils.TagVector("parallelResidualPairs", parallelResidualPairs.flatten)
+
+                println(s"Parallel pairs: $parallelResidualPairs, length: ${parallelResidualPairs.length}")
+
+                val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(parallelResidualPairs: _*)(_ * _)
+
+                val base_vec = (Range(num_loop_dimensions, dimensions) zip remainingInputs) map {
+                  case (dim, inpt) =>
+                    (lattice_shape(dim), mlir_libraries.Options.PO2Opt) match {
+                      case (2, true) =>
+                        0.to[ParameterIndex]
+                      case (shape, _) =>
+                        min(inpt.to[ParameterIndex], I32(shape - 1))
+                    }
+                }
+
+                println(s"Base Vec: $base_vec, Strides: ${strides.drop(num_loop_dimensions)}")
+
+                val base_index = (base_vec zip strides.drop(num_loop_dimensions)) map { case (b, s) => b * s.to[ParameterIndex] } reduceTree { _ + _ }
+
+                // Get flat index for each (corner + origin)
+                val indices: Seq[ParameterIndex] = corners map {
+                  corner =>
+                    val offset = ((corner zip parallel_strides) map {
+                      case (cc, stride) =>
+                        cc * stride
+                    }).sum.to[ParameterIndex]
+                    base_index + base + offset
+                }
+
+                // Get weighted sum
+                hypervolumes.map(_.to[OutputType]).zip(indices).map {
+                  case (hv, i) =>
+                    hv * params(i, unit)
+                }.reduceTree {
+                  _ + _
+                }
+              } else {
+//                val input_staged = expanded_arg(Seq(batch, unit, I32(current_dimension)), new_enable)
+                // finish recursively.
+                Pipe.Reduce(Reg[OutputType](0))(2 by 1) {
+                  bit =>
+                    val input = sramReads(current_dimension)
+                    val floored = floor(input).to[AccumResidualType]
+                    val diff = input - floored
+                    val residual_pair = scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
+                    val beqz = bit.infix_==(I32(0))
+                    val step = mux(beqz, 0.to[ParameterIndex], strides(current_dimension).to[ParameterIndex])
+                    // if bk == 0 then we take the weight to be 1-xk otherwise we use xk.
+                    val weight = mux(beqz, residual_pair(1), residual_pair(0))
+                    val recursive = recursive_fill(current_index :+ bit, base + step)
+                    recursive * weight.to[OutputType]
+                } {
+                  _ + _
+                }
               }
-              recursive_fill(scala.Seq.empty[ParameterIndex], argon.uconst[ParameterIndex](0))
+
+              checkpoint(s"LatticeLoop${current_dimension}_end")
+              result
             }
+            recursive_fill(scala.Seq.empty[ParameterIndex], argon.uconst[ParameterIndex](0))
           }
         }
       }

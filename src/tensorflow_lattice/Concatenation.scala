@@ -24,6 +24,20 @@ trait Concatenation {
     println(f"Concatenate Breakpoints: $breakpoints")
 
     new ReadableND[T] {
+      lazy val shape: Seq[I32] = {
+        // all other dimensions will be a perfect match, except for the concatenated one.
+        Range(0, dims, 1) map {
+          index =>
+            if (index != concat_axis) {
+              args.head.shape(index)
+            } else {
+              (args map { arg: ReadableND[T] => arg.shape(index) }) reduceTree {
+                _ + _
+              }
+            }
+        }
+      }
+
       override def getInterface: Interface[T] = {
         val interfaces = new scala.collection.mutable.ListBuffer[Interface[T]]()
         new Interface[T] {
@@ -111,20 +125,6 @@ trait Concatenation {
             priorityMux(pruned_enables map {
               _._1
             }, reads)
-          }
-        }
-
-        lazy val shape: Seq[I32] = {
-          // all other dimensions will be a perfect match, except for the concatenated one.
-          Range(0, dims, 1) map {
-            index =>
-              if (index != concat_axis) {
-                args.head.shape(index)
-              } else {
-                (args map { arg: ReadableND[T] => arg.shape(index) }) reduceTree {
-                  _ + _
-                }
-              }
           }
         }
       }

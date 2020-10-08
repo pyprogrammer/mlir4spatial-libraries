@@ -5,9 +5,11 @@ import spatial.dsl._
 
 class TestProcessor(scope: mlir_libraries.CoprocessorScope) extends mlir_libraries.Coprocessor[I32, I32](2, 1) {
   override def coprocessorScope: CoprocessorScope = scope
-  override def execute(inputs: Seq[I32]): Seq[I32] = {
+  override def deq(inputs: Seq[I32]): Seq[I32] = {
     Seq((inputs reduceTree { _ + _ }) + I32(1))
   }
+
+  override def enq(inputs: Seq[I32]): scala.Unit = {}
 }
 
 @spatial class CoprocessorTests(threads: scala.Int, workers: scala.Int) extends SpatialTest {

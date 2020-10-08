@@ -79,9 +79,12 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
   var frozen: Boolean = false
 
-  // Override this for the core inner function.
-  def execute(inputs: Seq[In_T]): Seq[Out_T]
+//  // Override this for the core inner function.
+//  def execute(inputs: Seq[In_T]): Seq[Out_T]
 
+  def enq(inputs: Seq[In_T])
+
+  def deq(inputs: Seq[In_T]): Seq[Out_T]
 
   def instantiate(): Void = {
     assert(!frozen, "Shouldn't be frozen yet")
@@ -128,6 +131,8 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
             }
         }
 
+        enq(reduced map {_._1})
+
         (reduced zip central_input_fifos) foreach {
           case ((value, _), fifo) =>
             fifo.enq(value)
@@ -156,7 +161,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
           val inputs = input_registers map {_.value}
 
           val destination = central_output_indices.deq
-          val results = execute(inputs)
+          val results = deq(inputs)
           output_fifos.zipWithIndex foreach {
             case (output_bundle, output_index) =>
               val write_enable = I32(output_index) === destination

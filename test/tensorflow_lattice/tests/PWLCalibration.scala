@@ -1,9 +1,8 @@
 package tensorflow_lattice.tests
 
 import mlir_libraries.ConversionImplicits._
-import mlir_libraries.OptimizationConfig
+import mlir_libraries.{CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
 import spatial.dsl._
-import mlir_libraries.{Tensor => MLTensor}
 
 object PWLCalibrationTest {
   val iterations = 20
@@ -24,32 +23,39 @@ object PWLCalibrationTest {
 @spatial class PWLCalibrationTest(num_loops: scala.Int) extends SpatialTest {
 
   type T = spatial.dsl.FixPt[TRUE, _5, _27]
-  val dimensions = 1
+  val dimensions = I32(1)
 
   implicit val cfg = OptimizationConfig(lattice_loops = 0, pwl_iterations = num_loops)
 
   def main(args: Array[String]): Unit = {
-    val iterations = PWLCalibrationTest.iterations
+    val iterations = I32(PWLCalibrationTest.iterations)
     val input_DRAM = DRAM[T](iterations, dimensions)
     setMem(input_DRAM, Array((PWLCalibrationTest.test_inputs map {
       argon.uconst[T](_)
     }): _*))
-    val output_DRAM = DRAM[T](I32(iterations))
-
+    val output_DRAM = DRAM[T](I32(PWLCalibrationTest.iterations))
+    System.out.println(s"!!!!!!!!BS Size: ${implicitly[argon.State].bundleStack.size}")
     Accel {
+      System.out.println(s"BS Size: ${implicitly[argon.State].bundleStack.size}")
       val input_sram = SRAM[T](iterations, dimensions)
-      input_sram load input_DRAM(0 :: iterations, 0 :: dimensions)
+      input_sram load input_DRAM(I32(0) :: iterations, I32(0) :: dimensions)
       val output_sram = SRAM[T](iterations)
-      val pwl =
-        tensorflow_lattice.tfl.PWLCalibration(pwl_calibration_kernel = PWLCalibrationTest.pwl_kernel, input_keypoints = PWLCalibrationTest.input_keypoints)(input_sram)
+      Pipe {
+        CoprocessorScope {
+          c =>
+            implicit val cps = c
+            tensorflow_lattice.tfl.PWLCalibration(pwl_calibration_kernel = PWLCalibrationTest.pwl_kernel, input_keypoints = PWLCalibrationTest.input_keypoints)(input_sram)
+        } {
+          pwl =>
+            val interface = pwl.getInterface
+            Pipe.Foreach(iterations by I32(1)) { i =>
+              interface.enq(Seq(i, I32(0)), Set(Bit(true)))
+              output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
+            }
 
-      val interface = pwl.getInterface
-      Pipe.Foreach(iterations by 1) { i =>
-        interface.enq(Seq(i, I32(0)), Set(Bit(true)))
-        output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
+            output_DRAM store output_sram
+        }
       }
-
-      output_DRAM store output_sram
     }
     val golden = Array[T]((PWLCalibrationTest.golden map {
       argon.uconst[T](_)

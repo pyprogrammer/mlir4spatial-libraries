@@ -2,8 +2,7 @@ package tensorflow_lattice.tests
 
 import spatial.dsl._
 import mlir_libraries.ConversionImplicits._
-import mlir_libraries.OptimizationConfig
-import mlir_libraries.{Tensor => MLTensor}
+import mlir_libraries.{CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
 
 object LatticeTest {
   val iterations = 20
@@ -75,19 +74,23 @@ object LatticeTest {
       val input_sram = SRAM[T](iterations, dimensions)
       input_sram load input_DRAM(0 :: iterations, 0 :: dimensions)
       val output_sram = SRAM[T](iterations)
-      val lattice =
-        tensorflow_lattice.tfl.Lattice(tp = "hypercube",
-          shape = MLTensor(values = scala.Array(2, 2, 2, 2, 2), shape=scala.Array(5)),
-          units = 1,
-          lattice_kernel = LatticeTest.lattice_kernel)(input_sram)
+      CoprocessorScope {
+        cps =>
+          implicit val c = cps
+          tensorflow_lattice.tfl.Lattice(tp = "hypercube",
+            shape = MLTensor(values = scala.Array(2, 2, 2, 2, 2), shape = scala.Array(5)),
+            units = 1,
+            lattice_kernel = LatticeTest.lattice_kernel)(input_sram)
+      } {
+        lattice =>
+          val interface = lattice.getInterface
+          Pipe.Foreach(iterations by 1) { i =>
+            interface.enq(Seq(i, I32(0)), Set(Bit(true)))
+            output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
+          }
 
-      val interface = lattice.getInterface
-      Pipe.Foreach(iterations by 1) { i =>
-        interface.enq(Seq(i, I32(0)), Set(Bit(true)))
-        output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
+          output_DRAM store output_sram
       }
-
-      output_DRAM store output_sram
     }
     val golden = Array[T]((LatticeTest.golden map { argon.uconst[T](_) }):_*)
     val output = getMem(output_DRAM)

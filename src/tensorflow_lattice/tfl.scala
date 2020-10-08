@@ -4,7 +4,7 @@ import mlir_libraries.types._
 import spatial.libdsl._
 
 import scala.reflect.ClassTag
-import mlir_libraries.{Tensor => MLTensor}
+import mlir_libraries.{CoprocessorScope, Tensor => MLTensor}
 import _root_.spatial.dsl
 
 object tfl extends PWLCalibration with Lattice {
@@ -40,14 +40,6 @@ object tfl extends PWLCalibration with Lattice {
           }
         }
       }
-
-//      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-//        val initial_ind = index.dropRight(1)
-//        val unit = index.last
-//        val value = if (degenerate_PWL_input) { arg(initial_ind :+ I32(0), ens)() } else { arg(index, ens)() }
-//        val v = params(value.to[I32], unit)
-//        () => v
-//      }
 
       lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
     }
@@ -96,7 +88,7 @@ object tf extends Concatenation with Blas3 {
     new ReindexingReadable[T] {
       override def subReadable: ReadableND[T] = arg
 
-      override def remapIndex(index: Seq[dsl.I32]): Seq[dsl.I32] = {
+      override def remapIndex(index: Seq[dsl.I32], ens: Set[Bit]): Seq[dsl.I32] = {
         val remapped = index.zipWithIndex map {
           case (i, dimension) => (mapping.getOrElse(dimension, dimension), i)
         }
@@ -122,7 +114,7 @@ object tf extends Concatenation with Blas3 {
     new ReindexingReadable[T] {
       override def subReadable: ReadableND[T] = arg
 
-      override def remapIndex(index: Seq[spatial.dsl.I32]): Seq[I32] = {
+      override def remapIndex(index: Seq[spatial.dsl.I32], ens: Set[Bit]): Seq[I32] = {
         // The first and last parts of the index are untouched.
         val initial_index = index.take(wrapped_axis)
         val last_index = index.drop(wrapped_axis + indices.rank)
@@ -139,16 +131,8 @@ object tf extends Concatenation with Blas3 {
 
         val new_index = initial_index ++ Seq(lut(flattened_index)) ++ last_index
 
-        {
-          import spatial.dsl._
-          print(r"Gather")
-          print(r"Input Index:")
-          index foreach {x => print(r" ${x}")}
-          println(r"")
-          print(r"Output Index:")
-          new_index foreach {x => print(r" ${x}")}
-          println(r"")
-        }
+        mlir_libraries.debug_utils.TagVector("GatherInputIndex", index, ens)
+        mlir_libraries.debug_utils.TagVector("OutputIndex", new_index, ens)
 
         new_index
       }

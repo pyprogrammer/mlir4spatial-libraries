@@ -15,12 +15,12 @@ object debug_utils {
     result.value
   }
 
-  def TagVector[T: Bits](name: String, values: Seq[T])(implicit state: argon.State): Void = {
+  def TagVector[T: Bits](name: String, values: Seq[T], ens: Set[Bit] = Set.empty)(implicit state: argon.State): Void = {
     if (!Options.Debug) { return new Void }
     {
       // For scala sim
       import spatial.dsl._
-      print(r"${name} =")
+      printIf(ens, r"${name} =")
     }
     values.zipWithIndex foreach {
       case (value, index) =>
@@ -31,14 +31,14 @@ object debug_utils {
         {
           // For scala sim
           import spatial.dsl._
-          print(r" $value")
+          printIf(ens, r" $value")
         }
     }
 
     {
       // For scala sim
       import spatial.dsl._
-      println(r"")
+      printIf(ens, argon.lang.api.Text("\n"))
     }
   }
 }

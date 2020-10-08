@@ -1,9 +1,8 @@
 package tensorflow_lattice
 
 import mlir_libraries.types.ReadableND
-import mlir_libraries.{types, Tensor => MLTensor}
+import mlir_libraries.{CoprocessorScope, types, Tensor => MLTensor}
 import spatial.libdsl._
-import _root_.spatial.dsl
 
 trait PWLCalibration {
 
@@ -14,7 +13,8 @@ trait PWLCalibration {
     tmp
   }
 
-  def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: MLTensor[scala.Double], input_keypoints: MLTensor[scala.Double])(arg: ReadableND[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig) = {
+  def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: MLTensor[scala.Double], input_keypoints: MLTensor[scala.Double])(arg: ReadableND[T])
+                                   (implicit state: argon.State, config: mlir_libraries.OptimizationConfig) = {
     // kernel is phrased as bias :: deltas.
     // however, we wish to use a priority mux instead, so we first compute the running sum.
     val num_loops = config.pwl_iterations
@@ -37,8 +37,6 @@ trait PWLCalibration {
     val diffs = pwl_calib_array.transpose map {
       vec => vec.tail
     }
-
-    val cumsum_LUT = LUT[T](units, num_keypoints)((cumsum.flatten) map {x => Bits(x.toUnchecked[T])}:_*)
 
     val input_kp_LUT = LUT[T](num_keypoints)((input_keypoints_array map {x => Bits(x.toUnchecked[T])}):_*)
 
@@ -68,40 +66,6 @@ trait PWLCalibration {
 
     new ReadableND[T] {
       // batch, unit -> batch, unit
-//      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-//        val d1 = index.last
-//        val staged = if (degenerate_PWL_input) arg(Seq(index.head, I32(0)), ens) else arg(index, ens)
-//
-//        val v = Reg[T]
-//        v := staged()
-//        val value = v.value
-//        // Handles cases where the input is within the keypoints.
-//        // Still need to handle the cases where the input is less than the first keypoint or larger than the last keypoint.
-//        val pwl = Pipe.Reduce(Reg[T])(iterations by 1 par I32(par_factor)) {
-//          kp_index =>
-//            val input_kp = input_kp_LUT(kp_index)
-//            val next_kp = input_kp_LUT(kp_index + I32(1))
-//            val scaled_diff = scaled_diffs_LUT(d1, kp_index)
-//            val offset = value - input_kp
-//            val is_valid = (input_kp < value) && (value <= next_kp)
-//            val output = cumsum_LUT(d1, kp_index) + offset * scaled_diff
-//            mux(is_valid, output, 0.to[T])
-//        }{_ + _}
-//        // Handle Edge Cases
-//        val front_val = cumsum_LUT(d1, I32(0))
-//        val back_val = cumsum_LUT(d1, I32(num_keypoints - 1))
-//        () => {
-//          val before_first = input_keypoints_array.head.toUnchecked[T] >= value
-//          val after_last = input_keypoints_array.last.toUnchecked[T] <= value
-//
-//          {
-//            import spatial.dsl._
-//            println(r"Input: $value, before_first: $before_first -> $front_val, after_last: $after_last -> $back_val, pwl: $pwl")
-//          }
-//
-//          priorityMux(Seq(before_first, after_last, !before_first && !after_last), Seq(front_val, back_val, pwl))
-//        }
-//      }
 
       override def getInterface: types.Interface[T] = {
         val subInterface = arg.getInterface
@@ -117,6 +81,11 @@ trait PWLCalibration {
           override def deq(index: Seq[I32], ens: Set[Bit]): T = {
             val value = subInterface.deq(getRealIndex(index), ens)
             val d1 = index.last
+
+            val cumsum_LUT = LUT[T](units, num_keypoints)((cumsum.flatten) map {x => Bits(x.toUnchecked[T])}:_*)
+            //    val front_LUT = cumsum_LUT
+            val front_LUT = LUT[T](units, num_keypoints)((cumsum.flatten) map {x => Bits(x.toUnchecked[T])}:_*)
+
             // Handles cases where the input is within the keypoints.
             // Still need to handle the cases where the input is less than the first keypoint or larger than the last keypoint.
             val pwl = Pipe.Reduce(Reg[T])(iterations by 1 par I32(par_factor)) {
@@ -130,17 +99,18 @@ trait PWLCalibration {
                 mux(is_valid, output, 0.to[T])
             }{_ + _}
             // Handle Edge Cases
-            val front_val = cumsum_LUT(d1, I32(0))
-            val back_val = cumsum_LUT(d1, I32(num_keypoints - 1))
+            val front_val = front_LUT(d1, I32(0))
+            val back_val = front_LUT(d1, I32(num_keypoints - 1))
             val before_first = input_keypoints_array.head.toUnchecked[T] >= value
             val after_last = input_keypoints_array.last.toUnchecked[T] <= value
+            val result = priorityMux(Seq[Bit](before_first, after_last, Bit(true)), Seq[T](front_val, back_val, pwl))
 
             {
               import spatial.dsl._
-              println(r"Input: $value, before_first: $before_first -> $front_val, after_last: $after_last -> $back_val, pwl: $pwl")
+              println(r"Input: $value, before_first: $before_first -> $front_val, after_last: $after_last -> $back_val, pwl: $pwl, result: $result")
             }
 
-            priorityMux(Seq(before_first, after_last, !before_first && !after_last), Seq(front_val, back_val, pwl))
+            result
           }
         }
       }

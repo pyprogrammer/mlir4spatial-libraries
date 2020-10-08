@@ -39,15 +39,20 @@ trait Concatenation {
       }
 
       override def getInterface: Interface[T] = {
-        val interfaces = new scala.collection.mutable.ListBuffer[Interface[T]]()
+        val interfaces = args map {_.getInterface}
         new Interface[T] {
           def prune_args(index: Seq[dsl.I32], ens: Set[dsl.Bit]) = {
             // compute breakpoints for each respective bank. This can be phrased as a priority mux across all banks, with
-            // the enable signal being whether the ub[axis] > index[axis]
+            // the enable signal being whether the ub[axis] > index[axis] && index[axis] >= ub[axis-1]
             val target_index = index(concat_axis)
 
-            val enables: Seq[Bit] = breakpoints map {
-              target_index < _
+            val enables: Seq[Bit] = breakpoints.zipWithIndex map {
+              case (bp, ind) =>
+                if (ind == 0) {
+                  target_index < bp
+                } else {
+                  breakpoints(ind - 1) <= target_index && target_index < bp
+                }
             }
 
             // Quick optimization in the case where enables has a set of false values followed by either a true or an
@@ -83,10 +88,6 @@ trait Concatenation {
             }
 
             assert(pruned_enables.nonEmpty, "Cannot have an empty enable list.")
-            if (pruned_enables.length > 1) {
-              println(s"Start: Concatenate Read Index: $index")
-              println(s"Pruned Enables: $pruned_enables")
-            }
             pruned_enables
           }
 
@@ -105,126 +106,39 @@ trait Concatenation {
           }
 
           override def enq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): Void = {
+
             val pruned_enables = prune_args(index, ens)
             pruned_enables foreach {
               case (en, input_index) =>
-                val interface = args(input_index).getInterface
                 val sub_index = get_new_index(index, input_index)
-                interface.enq(sub_index, ens + en)
-                interfaces.append(args(input_index).getInterface)
+                interfaces(input_index).enq(sub_index, ens + en)
             }
           }
 
           override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = {
             val pruned_enables = prune_args(index, ens)
+            mlir_libraries.debug_utils.TagVector("ConcatenationEnables", pruned_enables map {_._1}, ens)
             val reads = (pruned_enables zip interfaces) map {
               case ((en, ind), interface) =>
                 val sub_index = get_new_index(index, ind)
+                mlir_libraries.debug_utils.TagVector("ConcatenateSubIndex", sub_index, ens + en)
                 interface.deq(sub_index, ens + en)
             }
-            priorityMux(pruned_enables map {
+            val v = priorityMux(pruned_enables map {
               _._1
             }, reads)
+
+            mlir_libraries.debug_utils.TagVector("ConcatenateOutput", Seq(v), ens)
+
+            v
           }
         }
       }
     }
   }
 
-//    new ReadableND[T] {
-//      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-//
-//        // compute breakpoints for each respective bank. This can be phrased as a priority mux across all banks, with
-//        // the enable signal being whether the ub[axis] > index[axis]
-//        val target_index = index(concat_axis)
-//
-//        val enables: Seq[Bit] = breakpoints map {target_index < _}
-//
-//        // Quick optimization in the case where enables has a set of false values followed by either a true or an
-//        // undetermine value:
-//        // prune all enables for which it is statically false.
-//        // after this, prune all elements from the rear after the first statically true one.
-//
-//        val false_pruned_enables = enables.zipWithIndex filter {
-//          case (en, ind) =>
-//            en match {
-//              case argon.Const(x) =>
-//                // If it's a constant, we only keep it if it's true.
-//                x.toBoolean
-//              case _ =>
-//                // Otherwise, we don't know what it is and have to keep it.
-//                true
-//            }
-//        }
-//
-//        val first_true = false_pruned_enables find {
-//          case (en, ind) => en.isConst
-//        }
-//
-//        val pruned_enables = false_pruned_enables filter {
-//          // If first_true, then we drop everything after. Otherwise, keep everything.
-//          case (en, ind) =>
-//            first_true match {
-//              case Some((_, index)) =>
-//                ind <= index
-//              case None =>
-//                true
-//            }
-//        }
-//
-//        assert(pruned_enables.nonEmpty, "Cannot have an empty enable list.")
-//        if (pruned_enables.length > 1) {
-//          println(s"Start: Concatenate Read Index: $index")
-//          println(s"Pruned Enables: $pruned_enables")
-//        }
-//
-//        val reads = pruned_enables map {
-//          case (en, input_index) =>
-//            val input = args(input_index)
-//            val sub_index: Seq[I32] = index.zipWithIndex map { case (i, meta_index) =>
-//              if (meta_index != concat_axis) {
-//                i
-//              } else {
-//                if (input_index == 0) {
-//                  i
-//                } else {
-//                  i - breakpoints(input_index - 1)
-//                }
-//              }
-//            }
-//            input(sub_index, ens + en)
-//        }
-//        assert(pruned_enables.length == reads.length,
-//          f"Enables (${enables.length}) and Reads (${reads.length}) should have same length.")
-//
-//        val final_signals = pruned_enables map {_._1}
-//
-//        {
-//          import spatial.dsl._
-//          print(r"Concatenate Signals: ")
-//          final_signals foreach {sig => print(r" $sig")}
-//          println("")
-//        }
-//
-//        if (pruned_enables.length == 1) {
-//          reads.head
-//        } else {
-//          () => priorityMux(pruned_enables map {_._1}, reads map {x => x()})
-//        }
-//      }
-
   def expand_dims[T: Num](axis: Int)(arg: ReadableND[T])(implicit state:argon.State): ReadableND[T] = {
-//    new ReadableND[T] {
-//      override lazy val shape: Seq[dsl.I32] = {
-//        arg.shape.take(axis) ++ Seq(I32(1)) ++ arg.shape.drop(axis)
-//      }
-//
-//      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-//        // cut out middle dimension.
-//        val new_index = index.take(axis) ++ index.drop(axis + 1)
-//        arg(new_index, ens)
-//      }
-//    }
+
     new ReadableND[T] {
       override def getInterface: Interface[T] = {
         val subInterface = arg.getInterface

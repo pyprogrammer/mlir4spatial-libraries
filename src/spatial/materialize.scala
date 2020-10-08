@@ -118,7 +118,7 @@ trait Materialization {
     val size = arg.shape reduceTree {
       _ * _
     }
-    val intermediate = SRAM[T](size).nonbuffer
+    val intermediate = SRAM[T](size)
     intermediate.explicitName = f"materialization_sram_$materialization_capture"
     val strides = computeStrides(arg.shape)
 
@@ -142,25 +142,25 @@ trait Materialization {
 //        Counter.from(unk by I32(1))
 //    }
 
-    val ctrs = arg.shape.zipWithIndex map { case(x, ind) => Counter.from(x by I32(1)) }
+    val ctrs = arg.shape map { x => Counter.from(x by I32(1)) }
 
     val interface = arg.getInterface
 
     Pipe.Foreach(ctrs) {
       nd_index => {
-//        val index = utils.computeIndex(nd_index, strides)
         interface.enq(nd_index, Set(Bit(true)))
-//        intermediate(index) = arg(nd_index, Set(Bit(true)))()
       }
     }
 
     val finished = Reg[Bit](false)
 
-    Pipe {
-      Pipe.Foreach(ctrs) {
+
+
+    Sequential {
+      val ctrs2 = arg.shape map { x => Counter.from(x by I32(1)) }
+      Pipe.Foreach(ctrs2) {
         nd_index => {
           val index = utils.computeIndex(nd_index, strides)
-          interface.enq(nd_index, Set(Bit(true)))
           intermediate(index) = interface.deq(nd_index, Set(Bit(true)))
         }
       }
@@ -184,23 +184,14 @@ trait Materialization {
                   break := finished
               }
             }
-            intermediate(utils.computeIndex(index, strides))
+            val v = intermediate(utils.computeIndex(index, strides))
+            mlir_libraries.debug_utils.TagVector("Index", index, ens)
+            mlir_libraries.debug_utils.TagVector("Materializing", Seq(v), ens)
+            v
           }
         }
       }
     }
-
-//    new types.ReadableND[T] {
-//      override lazy val shape = arg.shape
-//
-//      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-//        () => {
-//          val ind = utils.computeIndex(index, strides)
-//          val tmp = intermediate(ind)
-//          tmp
-//        }
-//      }
-//    }
   }
 
   def MaterializeCoproc[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
@@ -218,10 +209,6 @@ trait Materialization {
           override def deq(inputs: Seq[I32]): Seq[T] = {
             Seq(subInterface.deq(inputs, Set(Bit(true))))
           }
-
-//          override def execute(inputs: Seq[I32]): Seq[T] = {
-//            Seq(arg(inputs, Set(Bit(true)))())
-//          }
         }
       }
     }
@@ -236,25 +223,6 @@ trait Materialization {
         cnt
       }
 
-      //      override def apply(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): () => T = {
-      //        println(s"Coprocessor Use: $count, assigned to ${count % parallelization}")
-      //        val coprocessor = coprocessors(count % parallelization)
-      //        count += 1
-      //        val interface = coprocessor.interface
-      //        val en = ens.toSeq reduceTree {_ && _}
-      ////        val fetched = Reg[Bit](false).buffer
-      //        Stream {
-      //          interface.enq(index, en)
-      //        }
-      //
-      //        () => {
-      //          val result = Reg[T]
-      //          Stream {
-      //            result := interface.deq(en).head
-      //          }
-      //          result.value
-      //        }
-      //      }
       override def getInterface: types.Interface[T] = {
         val coproc = coprocessors(getCount() % parallelization)
         val interface = coproc.interface

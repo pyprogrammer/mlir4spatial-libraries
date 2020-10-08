@@ -4,7 +4,7 @@ import forge.tags.api
 import spatial.libdsl._
 import spatial.metadata.memory._
 
-class CoprocessorScope(val scope_id: scala.Int)(implicit s: argon.State) {
+class CoprocessorScope(val coprocessorScopeId: scala.Int, val setupScopeId: scala.Int)(implicit s: argon.State) {
   type T = () => Any
   val state: argon.State = s
 
@@ -20,41 +20,50 @@ class CoprocessorScope(val scope_id: scala.Int)(implicit s: argon.State) {
     }
   }
 
-  def escape[T](thunk: => T): T = {
-    val bundle = state.bundleStack(scope_id)
+  private def escapeToScope[T](id: Int, thunk: => T): T = {
+    val bundle = state.bundleStack(id)
     val (result, newBundle) = state.WithScope({
       val tmp = thunk
       tmp
     }, bundle)
     // store the new bundle back
-    state.bundleStack.update(scope_id, newBundle)
+    state.bundleStack.update(coprocessorScopeId, newBundle)
     result
   }
+
+  def escape[T](thunk: => T): T = escapeToScope(coprocessorScopeId, thunk)
+
+//  def setup[T](thunk: => T): T = escapeToScope(setupScopeId, thunk)
 }
 
 object CoprocessorScope {
-  @api def apply[T](init: CoprocessorScope => T)(func: T => Any): Void = {
-    val scope_id: Int = state.bundleStack.size
-    if (Options.Coproc) {
-      val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill")
-      Stream(breakWhen = kill).Foreach(*) {
-        _ =>
-          // Stage into current scope
-          val scope = new CoprocessorScope(scope_id)
+  def apply[T](init: CoprocessorScope => T)(func: T => Any)(implicit state: argon.State): Void = {
+//    println(s"BS Size: ${state.bundleStack.size}")
+    val setupScopeId: Int = state.bundleStack.size
+//    'SetupScope.Pipe {
+      val coprocScopeId: Int = state.bundleStack.size
+      println(s"BS Size: ${state.bundleStack.size}")
+      if (Options.Coproc) {
+        val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill")
+        'CoprocessorScope.Stream(breakWhen = kill).Foreach(*) {
+          _ =>
+            // Stage into current scope
+            val scope = new CoprocessorScope(coprocScopeId, setupScopeId)
+            val initialized = init(scope)
+            Pipe {
+              func(initialized)
+              kill := 1.to[Bit]
+            }
+            scope.instantiate()
+        }
+      } else {
+        'CoprocessorScope.Pipe {
+          val scope = new CoprocessorScope(coprocScopeId, setupScopeId)
           val initialized = init(scope)
-          Pipe {
-            func(initialized)
-            kill := 1.to[Bit]
-          }
-          scope.instantiate()
+          func(initialized)
+        }
       }
-    } else {
-      Pipe {
-        val scope = new CoprocessorScope(scope_id)
-        val initialized = init(scope)
-        func(initialized)
-      }
-    }
+//    }
   }
 }
 
@@ -131,10 +140,17 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
             }
         }
 
-        enq(reduced map {_._1})
+        val final_values = reduced map {
+          case (v, _) =>
+            val r = Reg[In_T]
+            r := v
+            r.value
+        }
 
-        (reduced zip central_input_fifos) foreach {
-          case ((value, _), fifo) =>
+        enq(final_values)
+
+        (final_values zip central_input_fifos) foreach {
+          case (value, fifo) =>
             fifo.enq(value)
         }
         central_output_indices.enq(next_fifo)

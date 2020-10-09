@@ -57,7 +57,7 @@ object CoprocessorScope {
             scope.instantiate()
         }
       } else {
-        'CoprocessorScope.Pipe {
+        'CoprocessorScope.Sequential {
           val scope = new CoprocessorScope(coprocScopeId, setupScopeId)
           val initialized = init(scope)
           func(initialized)

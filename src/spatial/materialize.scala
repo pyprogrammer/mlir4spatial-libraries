@@ -118,7 +118,7 @@ trait Materialization {
     val size = arg.shape reduceTree {
       _ * _
     }
-    val intermediate = SRAM[T](size)
+    val intermediate = SRAM[T](size).nonbuffer
     intermediate.explicitName = f"materialization_sram_$materialization_capture"
     val strides = computeStrides(arg.shape)
 
@@ -142,30 +142,34 @@ trait Materialization {
 //        Counter.from(unk by I32(1))
 //    }
 
-    val ctrs = arg.shape map { x => Counter.from(x by I32(1)) }
+
 
     val interface = arg.getInterface
 
-    Pipe.Foreach(ctrs) {
-      nd_index => {
-        interface.enq(nd_index, Set(Bit(true)))
-      }
-    }
-
-    val finished = Reg[Bit](false)
-
-
+    val finishStream = Reg[Bit](false)
+    finishStream.explicitName = "MaterializeCompletion"
+    finishStream.nonbuffer.dontTouch
+    finishStream := false
 
     Sequential {
-      val ctrs2 = arg.shape map { x => Counter.from(x by I32(1)) }
-      Pipe.Foreach(ctrs2) {
-        nd_index => {
-          val index = utils.computeIndex(nd_index, strides)
-          intermediate(index) = interface.deq(nd_index, Set(Bit(true)))
+      Pipe {
+        val ctrs = arg.shape map { x => Counter.from(x by I32(1)) }
+        Pipe.Foreach(ctrs) {
+          nd_index => {
+            interface.enq(nd_index, Set(Bit(true)))
+          }
+        }
+
+        val ctrs2 = arg.shape map { x => Counter.from(x by I32(1)) }
+        Pipe.Foreach(ctrs2) {
+          nd_index => {
+            val index = utils.computeIndex(nd_index, strides)
+            intermediate(index) = interface.deq(nd_index, Set(Bit(true)))
+          }
         }
       }
       retimeGate()
-      finished := true
+      finishStream := true
     }
 
     new types.ReadableND[T] {
@@ -177,17 +181,22 @@ trait Materialization {
 
           override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = {
             // wait until finished
-            val break = Reg[Bit](false)
-            Pipe(breakWhen = break) {
-              Foreach(*) {
-                _ =>
-                  break := finished
+            val result = Reg[T]
+            Sequential {
+              val break = Reg[Bit](false)
+              Sequential(breakWhen = break)(implicitly[SrcCtx], implicitly[argon.State]) {
+                Foreach(*) {
+                  _ =>
+                    break := finishStream
+                }
               }
+              retimeGate()
+              result := intermediate(utils.computeIndex(index, strides))
+              mlir_libraries.debug_utils.TagVector("Index", index, ens)
+              mlir_libraries.debug_utils.TagVector("Materializing", Seq(result.value), ens)
             }
-            val v = intermediate(utils.computeIndex(index, strides))
-            mlir_libraries.debug_utils.TagVector("Index", index, ens)
-            mlir_libraries.debug_utils.TagVector("Materializing", Seq(v), ens)
-            v
+            retimeGate()
+            result.value
           }
         }
       }
@@ -203,11 +212,31 @@ trait Materialization {
           override def coprocessorScope: CoprocessorScope = cps
 
           override def enq(inputs: Seq[I32]): Unit = {
-            subInterface.enq(inputs, Set(Bit(true)))
+            Pipe {
+              val stagedRegs = inputs map {
+                v =>
+                  val reg = Reg[I32]
+                  reg := v
+                  reg.value
+              }
+              subInterface.enq(stagedRegs, Set(Bit(true)))
+            }
           }
 
           override def deq(inputs: Seq[I32]): Seq[T] = {
-            Seq(subInterface.deq(inputs, Set(Bit(true))))
+            val output = Reg[T]
+            Pipe {
+              val stagedRegs = inputs map {
+                v =>
+                  val reg = Reg[I32]
+                  reg := v
+                  reg.value
+              }
+
+
+              output := subInterface.deq(inputs, Set(Bit(true)))
+            }
+            Seq(output.value)
           }
         }
       }
@@ -228,11 +257,15 @@ trait Materialization {
         val interface = coproc.interface
         new types.Interface[T] {
           override def enq(index: Seq[I32], ens: Set[Bit]): Void = {
-            interface.enq(index, ens.toSeq reduceTree {_ && _})
+            interface.enq(index, ens.toSeq reduceTree {
+              _ && _
+            })
           }
 
           override def deq(index: Seq[I32], ens: Set[Bit]): T = {
-            interface.deq(ens.toSeq reduceTree {_ && _}).head
+            interface.deq(ens.toSeq reduceTree {
+              _ && _
+            }).head
           }
         }
       }

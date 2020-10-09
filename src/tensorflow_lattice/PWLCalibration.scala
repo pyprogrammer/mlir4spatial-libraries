@@ -107,7 +107,7 @@ trait PWLCalibration {
 
             {
               import spatial.dsl._
-              println(r"Input: $value, before_first: $before_first -> $front_val, after_last: $after_last -> $back_val, pwl: $pwl, result: $result")
+              printIf(ens, r"Input: $value, before_first: $before_first -> $front_val, after_last: $after_last -> $back_val, pwl: $pwl, result: $result" ++ argon.lang.Text("\n"))
             }
 
             result

@@ -81,16 +81,13 @@ class DumpScope(implicit state: argon.State) {
       (validDram, escapeDram, requestDram)
     }
 
-    val intermediate = SRAM[T](arg.size).nonbuffer.nofission
-    intermediate.shouldIgnoreConflicts = true
+    val intermediate = SRAM[T](arg.size).nonbuffer.fullfission
     intermediate.explicitName = f"dump_SRAM_$name"
 
-    val accessSram = SRAM[I32](arg.size).nonbuffer.nofission
-    accessSram.shouldIgnoreConflicts = true
+    val accessSram = SRAM[I32](arg.size).nonbuffer.fullfission
     accessSram.explicitName = f"dump_SRAM_valid_$name"
 
-    val requestSram = SRAM[I32](arg.size).nonbuffer.nofission
-    requestSram.shouldIgnoreConflicts = true
+    val requestSram = SRAM[I32](arg.size).nonbuffer.fullfission
     requestSram.explicitName = f"dump_SRAM_rqst_$name"
 
     val strides = computeStrides(arg.shape)

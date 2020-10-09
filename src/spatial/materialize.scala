@@ -151,7 +151,7 @@ trait Materialization {
     finishStream.explicitName = "MaterializeCompletion"
     finishStream.nonbuffer.dontTouch
     finishStream := false
-
+    retimeGate()
     Sequential {
       Pipe {
         val ctrs = arg.shape map { x => Counter.from(x by I32(1)) }
@@ -185,15 +185,12 @@ trait Materialization {
             val result = Reg[T]
             Sequential {
               val break = Reg[Bit](false)
-              Sequential(breakWhen = break)(implicitly[SrcCtx], implicitly[argon.State]) {
-                Foreach(*) {
-                  _ =>
-                    break := finishStream || !(ens.toSeq.reduceTree {_ && _})
-                }
+              Sequential(breakWhen = break)(implicitly[SrcCtx], implicitly[argon.State]).Foreach(*) {
+                _ =>
+                  break := finishStream || !(ens.toSeq.reduceTree {_ && _})
               }
               retimeGate()
               result := argon.stage(SRAMRead(intermediate, Seq(utils.computeIndex(index, strides)), ens))
-//              result := intermediate(utils.computeIndex(index, strides))
               mlir_libraries.debug_utils.TagVector("Index", index, ens)
               mlir_libraries.debug_utils.TagVector("Materializing", Seq(result.value), ens)
             }

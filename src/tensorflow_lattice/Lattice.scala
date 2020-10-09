@@ -62,16 +62,14 @@ trait Lattice {
             val unit = index.last
             val params = LUT[OutputType](lattice_kernel.shape.head, units)(param_list: _*)
 
-            val intermediate_SRAM = RegFile[T](I32(dimensions)).buffer
-            intermediate_SRAM.explicitName = "LatticeInputs"
-            Range(0, dimensions) foreach {
+            val intermediate_values = Range(0, dimensions) map {
               dim =>
-                intermediate_SRAM(dim) = interfaces(dim % parallel_dimensions).deq(Seq(batch, unit, I32(dim)), ens)
+                val reg = Reg[T]
+                reg := interfaces(dim % parallel_dimensions).deq(Seq(batch, unit, I32(dim)), ens)
+                reg.value
             }
 
-            val sramReads = Range(0, dimensions) map {
-              dim => intermediate_SRAM(I32(dim))
-            }
+            val sramReads = intermediate_values
 
             mlir_libraries.debug_utils.TagVector("LatticeInputsTag", sramReads, ens)
 

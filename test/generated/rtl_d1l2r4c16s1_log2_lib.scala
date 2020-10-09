@@ -17,8 +17,10 @@ object rtl_d1l2r4c16s1_log2_callable {
     val (v8) = tfl.PWLCalibration(input_keypoints = mlir_libraries.Tensor(values=Array(0.000000e+00, 1.000000e+00, 2.000000e+00, 3.000000e+00), shape = Array(4)), pwl_calibration_kernel = mlir_libraries.Tensor(values=Array(9.809987e-01, -9.643396e-01, 9.394863e-01, 0.000000e+00), shape = Array(4, 1)))(arg0_8)
     val (v9_) = tf.Concatenate(axis = 1)(v0, v1, v2, v3, v4, v5, v6, v7, v8)
     val v9 = dumpScope.dump("v9")(v9_)
+    // Verified up to v9
     val (v10_) = tf.GatherV2(axis = 1, indices = mlir_libraries.Tensor(values=Array(8, 5, 2, 12, 15, 10, 4, 14, 0, 6, 3, 11, 7, 9, 1, 13), shape = Array(4, 4)))(v9)
     val v10 = dumpScope.dump("v10")(v10_)
+    // Verified up to v10
     val (v11_) = spatiallib.Materialize(parallelization = 1, uptime = mlir_libraries.Fraction(num = 1, den = 1))(v10)
     val v11 = dumpScope.dump("v11")(v11_)
     val (v12) = tfl.Lattice(lattice_kernel = mlir_libraries.Tensor(values=Array(3.362419e-01, 1.989479e-02, 2.157462e-02, 1.229143e-02, 1.398221e-02, 5.685530e-02, 9.902865e-01, 1.261285e-02, 2.736660e-02, 9.763098e-01, 9.712788e-02, 2.221690e-02, 5.299945e-01, 9.738311e-01, 9.915118e-01, 2.236905e-02, 9.438654e-01, 5.498449e-01, 5.739176e-01, 2.010252e-01, 9.961193e-01, 6.387573e-01, 5.296203e-01, 1.058933e-02, 3.849815e-02, 1.962447e-01, 2.123205e-01, 9.441247e-01, 7.301437e-01, 1.846906e-01, 9.573790e-01, 9.411668e-01, 8.208253e-01, 7.592796e-04, 9.820082e-01, 4.163333e-01, 9.793473e-01, 7.641457e-04, 7.481546e-01, 4.349446e-02, 8.231042e-01, 9.839610e-01, 9.747303e-01, 9.897445e-01, 3.492141e-01, 9.912654e-01, 9.995235e-01, 9.902756e-01, 1.934424e-02, 9.863759e-01, 1.614255e-02, 9.908546e-01, 7.750014e-04, 9.866490e-01, 7.037646e-01, 9.880817e-01, 9.504128e-01, 5.658635e-01, 5.012096e-01, 3.233612e-01, 9.734335e-01, 5.511649e-01, 9.712705e-01, 3.731366e-01), shape = Array(16, 4)), shape = mlir_libraries.Tensor(values=Array(2, 2, 2, 2), shape = Array(4)), tp = "hypercube", units = 4)(v11)

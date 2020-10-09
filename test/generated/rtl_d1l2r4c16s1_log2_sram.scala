@@ -6,8 +6,6 @@ import spatial.libdsl._
 
 @spatial class rtl_d1l2r4c16s1_log2_sram(lattice_loops: Int, pwl_iterations: Int) extends SpatialTest {
 
-  override def compileArgs = "--noModifyStream --max_cycles=2000"
-
   import spatial.dsl._
   type T = FixPt[TRUE, _7, _25]
   val iterations = 1

@@ -3,6 +3,7 @@ package mlir_libraries
 import spatial.libdsl._
 import _root_.spatial.dsl
 import _root_.spatial.metadata.memory._
+import _root_.spatial.node.SRAMRead
 
 // For MLIR-spatial native operations
 trait Materialization {
@@ -187,11 +188,12 @@ trait Materialization {
               Sequential(breakWhen = break)(implicitly[SrcCtx], implicitly[argon.State]) {
                 Foreach(*) {
                   _ =>
-                    break := finishStream
+                    break := finishStream || !(ens.toSeq.reduceTree {_ && _})
                 }
               }
               retimeGate()
-              result := intermediate(utils.computeIndex(index, strides))
+              result := argon.stage(SRAMRead(intermediate, Seq(utils.computeIndex(index, strides)), ens))
+//              result := intermediate(utils.computeIndex(index, strides))
               mlir_libraries.debug_utils.TagVector("Index", index, ens)
               mlir_libraries.debug_utils.TagVector("Materializing", Seq(result.value), ens)
             }

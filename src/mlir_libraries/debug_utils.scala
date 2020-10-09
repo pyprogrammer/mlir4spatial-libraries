@@ -120,11 +120,13 @@ class DumpScope(implicit state: argon.State) {
         new types.Interface[T] {
           override def enq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): Void = {
             argon.stage(spatial.node.SRAMWrite(requestSram,1.to[I32],Seq(utils.computeIndex(index, strides)), ens))
+            debug_utils.TagVector(s"dump_enq_$name", index, ens)
             subInterface.enq(index, ens)
           }
 
           override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = {
             val v = subInterface.deq(index, ens)
+            debug_utils.TagVector(s"dump_deq_$name", index, ens)
             argon.stage(spatial.node.SRAMWrite(intermediate,v,Seq(utils.computeIndex(index, strides)), ens))
             argon.stage(spatial.node.SRAMWrite(accessSram,1.to[I32],Seq(utils.computeIndex(index, strides)), ens))
             v

@@ -132,16 +132,18 @@ trait Materialization {
       case _ => Seq.empty
     }
 
-//    val parFactors = computeParFactors(shape, parallelization)
-//    println(s"Requested Par: $parallelization, Recieved: $parFactors")
-//    assert(parFactors.length == shape.length)
-//    val parIterator = parFactors.toIterator
-//    val ctrs = arg.shape map {
-//      case argon.Const(s) =>
-//        Counter.from(I32(s.toInt) by I32(1) par I32(parIterator.next()))
-//      case unk =>
-//        Counter.from(unk by I32(1))
-//    }
+    val parFactors = computeParFactors(shape, parallelization)
+    println(s"Requested Par: $parallelization, Recieved: $parFactors")
+    assert(parFactors.length == shape.length)
+
+    val ctrs = () => {
+      val parIterator = parFactors.toIterator
+      arg.shape map {
+      case argon.Const(s) =>
+        Counter.from(I32(s.toInt) by I32(1) par I32(parIterator.next()))
+      case unk =>
+        Counter.from(unk by I32(1))
+    }}
 
 
 
@@ -151,25 +153,21 @@ trait Materialization {
     finishStream.explicitName = "MaterializeCompletion"
     finishStream.nonbuffer.dontTouch
     finishStream := false
-    retimeGate()
-    Sequential {
-      Pipe {
-        val ctrs = arg.shape map { x => Counter.from(x by I32(1)) }
-        Pipe.Foreach(ctrs) {
-          nd_index => {
-            interface.enq(nd_index, Set(Bit(true)))
-          }
-        }
-
-        val ctrs2 = arg.shape map { x => Counter.from(x by I32(1)) }
-        Pipe.Foreach(ctrs2) {
-          nd_index => {
-            val index = utils.computeIndex(nd_index, strides)
-            intermediate(index) = interface.deq(nd_index, Set(Bit(true)))
-          }
+    Pipe {
+//      val ctrs = arg.shape map { x => Counter.from(x by I32(1)) }
+      Pipe.Foreach(ctrs()) {
+        nd_index => {
+          interface.enq(nd_index, Set(Bit(true)))
         }
       }
-      retimeGate()
+
+//      val ctrs2 = arg.shape map { x => Counter.from(x by I32(1)) }
+      Pipe.Foreach(ctrs()) {
+        nd_index => {
+          val index = utils.computeIndex(nd_index, strides)
+          intermediate(index) = interface.deq(nd_index, Set(Bit(true)))
+        }
+      }
       finishStream := true
     }
 
@@ -183,14 +181,14 @@ trait Materialization {
           override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = {
             // wait until finished
             val result = Reg[T]
-            Sequential {
+            val ind = utils.computeIndex(index, strides)
+            'SpinWaitOuter.Sequential {
               val break = Reg[Bit](false)
-              Sequential(breakWhen = break)(implicitly[SrcCtx], implicitly[argon.State]).Foreach(*) {
+              'SpinWait.Sequential(breakWhen = break)(implicitly[SrcCtx], implicitly[argon.State]).Foreach(*) {
                 _ =>
                   break := finishStream || !(ens.toSeq.reduceTree {_ && _})
               }
-              retimeGate()
-              result := argon.stage(SRAMRead(intermediate, Seq(utils.computeIndex(index, strides)), ens))
+              result := argon.stage(SRAMRead(intermediate, Seq(ind), ens))
               mlir_libraries.debug_utils.TagVector("Index", index, ens)
               mlir_libraries.debug_utils.TagVector("Materializing", Seq(result.value), ens)
             }
@@ -232,8 +230,7 @@ trait Materialization {
                   reg.value
               }
 
-
-              output := subInterface.deq(inputs, Set(Bit(true)))
+              output := subInterface.deq(stagedRegs, Set(Bit(true)))
             }
             Seq(output.value)
           }

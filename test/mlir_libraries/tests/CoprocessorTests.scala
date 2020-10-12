@@ -26,7 +26,7 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope) extends mlir_librari
           scope =>
             Range(0, workers) map {_ => new TestProcessor(scope)}
         } {
-          proc =>
+          case (kill, proc) =>
             // split space
             Stream {
               Range(0, threads) foreach {

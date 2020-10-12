@@ -4,10 +4,10 @@ import mlir_libraries.ConversionImplicits._
 import mlir_libraries.DumpScope
 @spatial class rtl_d1l2r4c16s1_log2_coproc(lattice_loops: Int, pwl_iterations: Int) extends SpatialTest {
 
-  override def compileArgs = "--noModifyStream --max_cycles=2000"
+  override def compileArgs = "--noModifyStream --max_cycles=10000"
 
   import spatial.dsl._
-  type T = FixPt[TRUE, _4, _28]
+  type T = FixPt[TRUE, _9, _23]
   val iterations = 1
   implicit val cfg = mlir_libraries.OptimizationConfig(lattice_loops = lattice_loops, pwl_iterations = pwl_iterations)
   def main(args: Array[String]) : Unit = {
@@ -79,17 +79,20 @@ import mlir_libraries.DumpScope
           mlir_libraries.CoprocessorScope {
             scope =>
               implicit val cps = scope
-              rtl_d1l2r4c16s1_log2_callable.rtl_d1l2r4c16s1_log2_callable(sram_0, sram_1, sram_2, sram_3, sram_4, sram_5, sram_6, sram_7, sram_8).getInterface
+              rtl_d1l2r4c16s1_log2_callable.rtl_d1l2r4c16s1_log2_callable(sram_0, sram_1, sram_2, sram_3, sram_4, sram_5, sram_6, sram_7, sram_8)
             } {
-            result =>
-              Stream {
-                Foreach(I32(iterations) by I32(1)) { i =>
-                  result.enq(Seq(i, I32(0)), Set(Bit(true)))
-                }
+            case (kill, tmp) =>
+              val result = tmp.getInterface
 
-                Foreach(I32(iterations) by I32(1)) { i =>
+              Foreach(I32(iterations) by I32(1)) { i =>
+                result.enq(Seq(i, I32(0)), Set(Bit(true)))
+              }
+
+              Sequential {
+                Pipe.Foreach(I32(iterations) by I32(1)) { i =>
                   output_sram(i) = result.deq(Seq(i, I32(0)), Set(Bit(true)))
                 }
+                kill := true
               }
           }
           output_DRAM store output_sram

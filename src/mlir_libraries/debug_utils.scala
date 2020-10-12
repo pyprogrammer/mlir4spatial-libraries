@@ -81,13 +81,24 @@ class DumpScope(implicit state: argon.State) {
       (validDram, escapeDram, requestDram)
     }
 
-    val intermediate = SRAM[T](arg.size).nonbuffer.fullfission
+    // banking params
+    val N = arg.shape map {
+      _ match {
+        case argon.Const(x) => x.toInt
+        case _ => assert(false, "FUCK")
+          1
+      }
+    } reduce {_ * _}
+
+    println(s"Banking by $N: ${arg.shape}")
+
+    val intermediate = SRAM[T](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1))
     intermediate.explicitName = f"dump_SRAM_$name"
 
-    val accessSram = SRAM[I32](arg.size).nonbuffer.fullfission
+    val accessSram = SRAM[I32](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1))
     accessSram.explicitName = f"dump_SRAM_valid_$name"
 
-    val requestSram = SRAM[I32](arg.size).nonbuffer.fullfission
+    val requestSram = SRAM[I32](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1))
     requestSram.explicitName = f"dump_SRAM_rqst_$name"
 
     val strides = computeStrides(arg.shape)

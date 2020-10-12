@@ -37,33 +37,29 @@ class CoprocessorScope(val coprocessorScopeId: scala.Int, val setupScopeId: scal
 }
 
 object CoprocessorScope {
-  def apply[T](init: CoprocessorScope => T)(func: T => Any)(implicit state: argon.State): Void = {
+  def apply[T](init: CoprocessorScope => T)(func: (Reg[Bit], T) => Any)(implicit state: argon.State): Void = {
 //    println(s"BS Size: ${state.bundleStack.size}")
+    val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill")
     val setupScopeId: Int = state.bundleStack.size
-//    'SetupScope.Pipe {
-      val coprocScopeId: Int = state.bundleStack.size
-      println(s"BS Size: ${state.bundleStack.size}")
-      if (Options.Coproc) {
-        val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill")
-        'CoprocessorScope.Stream(breakWhen = kill).Foreach(*) {
-          _ =>
-            // Stage into current scope
-            val scope = new CoprocessorScope(coprocScopeId, setupScopeId)
-            val initialized = init(scope)
-            Pipe {
-              func(initialized)
-              kill := 1.to[Bit]
-            }
-            scope.instantiate()
-        }
-      } else {
-        'CoprocessorScope.Sequential {
+    val coprocScopeId: Int = state.bundleStack.size
+    println(s"BS Size: ${state.bundleStack.size}")
+    if (Options.Coproc) {
+      'CoprocessorScope.Stream(breakWhen = kill).Foreach(I32(1) by I32(1)) {
+        _ =>
+          // Stage into current scope
           val scope = new CoprocessorScope(coprocScopeId, setupScopeId)
           val initialized = init(scope)
-          func(initialized)
-        }
+          func(kill, initialized)
+//            kill := 1.to[Bit]
+          scope.instantiate()
       }
-//    }
+    } else {
+      'CoprocessorScope.Pipe {
+        val scope = new CoprocessorScope(coprocScopeId, setupScopeId)
+        val initialized = init(scope)
+        func(kill, initialized)
+      }
+    }
   }
 }
 
@@ -113,48 +109,70 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
     val central_output_indices = FIFO[I32](I32(input_fifos.size * SCALE_FACTOR))
     central_output_indices.explicitName = "CentralOutputIndicesFifo"
 
+    val intermediateArbiterFifo = FIFO[I32](I32(INPUT_FIFO_DEPTH))
+    'CoprocessorPreArbiter.Stream.Foreach(*) {
+      _ =>
+        val ind = priorityDeq(id_fifos:_*)
+        intermediateArbiterFifo.enq(ind)
+    }
+
     // now execute the actual kernel
     'CoprocessorArbiter.Stream.Foreach(*) {
       _ => {
         // dequeues from all of the fifoes which have an element
         println(s"Number of id fifos: ${id_fifos.size}")
-        val next_fifo: I32 = priorityDeq(id_fifos:_*)
-
+//        val next_fifo = priorityDeq(id_fifos: _*)
+        val next_fifo = intermediateArbiterFifo.deq
         val should_dequeue = input_fifos.zipWithIndex map {
           case (_, ind) =>
             I32(ind) === next_fifo
         }
 
-        val dequeued = (input_fifos zip should_dequeue) map {
-          case (bundle, en) =>
-            bundle map {
-              fifo => (fifo.deq(en), en)
-            }
-        }
+        Pipe { // Make it not buffer this reg
+          val desired_fifo_has_data = Reg[Bit](false)
+          desired_fifo_has_data := false
+          // Wait for desired fifo to have some data.  May spin for a bit in the beginning but eventually it should only spin for a few cycles per request
+          Sequential(breakWhen = desired_fifo_has_data).Foreach(*) { _ =>
+            val keep_spinning = should_dequeue zip input_fifos map {
+              case (sd, fifo_list) =>
+                val anyEmpty = (fifo_list map {_.isEmpty}).reduceTree {_ || _}
+                // If any are empty and sd is high, then we need to keep spinning
+                anyEmpty && sd
+            } reduceTree { _ || _ }
+            desired_fifo_has_data := keep_spinning
+          }
 
-        val reduced = dequeued.transpose map {
-          signals =>
-            signals reduceTree {
-              case ((v1, en1), (v2, en2)) =>
-                (mux(en1, v1, v2), en1 || en2)
-            }
-        }
+          val dequeued = (input_fifos zip should_dequeue) map {
+            case (bundle, en) =>
+              bundle map {
+                fifo => (fifo.deq(en), en)
+              }
+          }
 
-        val final_values = reduced map {
-          case (v, _) =>
-            val r = Reg[In_T]
-            r := v
-            r.value
-        }
+          val reduced = dequeued.transpose map {
+            signals =>
+              signals reduceTree {
+                case ((v1, en1), (v2, en2)) =>
+                  (mux(en1, v1, v2), en1 || en2)
+              }
+          }
 
-        enq(final_values)
+          val final_values = reduced map {
+            case (v, _) =>
+              val r = Reg[In_T]
+              r := v
+              r.value
+          }
 
-        (final_values zip central_input_fifos) foreach {
-          case (value, fifo) =>
-            fifo.enq(value)
+          enq(final_values)
+
+          (final_values zip central_input_fifos) foreach {
+            case (value, fifo) =>
+              fifo.enq(value)
+          }
+          central_output_indices.enq(next_fifo)
         }
-        central_output_indices.enq(next_fifo)
-        }
+      }
     }
 
     'Coprocessor.Stream.Foreach(*) {
@@ -198,12 +216,13 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits](input_arity: Int, output_ari
 
     def enq(input: Seq[In_T], en: Bit = Bit(true)): Void = {
       enqueued = true
-      Parallel {
-        identity_fifo.enq(I32(id), en)
-
-        (input_stream zip input) foreach {
-          case (fifo, in) => fifo.enq(in, en)
+      Sequential {
+        Parallel {
+          (input_stream zip input) foreach {
+            case (fifo, in) => fifo.enq(in, en)
+          }
         }
+        identity_fifo.enq(I32(id), en)
       }
     }
 

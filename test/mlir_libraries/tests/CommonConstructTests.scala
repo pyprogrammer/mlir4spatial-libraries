@@ -87,7 +87,7 @@ object LatticeWithMaterializeTest {
             units = 1,
             lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(input_sram)
       } {
-        lattice =>
+        case (kill, lattice) =>
           val materialized = mlir_libraries.spatiallib.MaterializeSRAM()(lattice).getInterface
           Pipe.Foreach(iterations by 1) { i =>
             materialized.enq(Seq(i, I32(0)), Set(Bit(true)))
@@ -135,7 +135,7 @@ object LatticeWithMaterializeTest {
               lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(input_sram)
           mlir_libraries.spatiallib.MaterializeCoproc()(lattice)
       } {
-        materialized =>
+        case (kill, materialized) =>
           val interface = materialized.getInterface
           Stream {
             Pipe.Foreach(iterations by 1) { i =>

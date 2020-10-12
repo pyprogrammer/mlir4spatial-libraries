@@ -22,6 +22,7 @@ object tfl extends PWLCalibration with Lattice {
       case _ => false
     }
 
+
     val param_list = categorical_calibration_kernel_array.flatten.map { x => Bits(x.toUnchecked[T]) }.toSeq
     val params = LUT[T](categorical_calibration_kernel_array.length, units)(param_list:_*)
     new ReadableND[T] {
@@ -35,8 +36,16 @@ object tfl extends PWLCalibration with Lattice {
           override def enq(index: Seq[I32], ens: Set[Bit]): Void = subInterface.enq(getRealIndex(index), ens)
 
           override def deq(index: Seq[I32], ens: Set[Bit]): T = {
-            val value = subInterface.deq(getRealIndex(index), ens)
-            params(value.to[I32], index.last)
+            val realIndex = getRealIndex(index)
+            val value = subInterface.deq(realIndex, ens)
+            val result = params(value.to[I32], index.last)
+
+            {
+              import spatial.dsl._
+              printIf(ens, r"Input: ${index.map{_.toText}.reduce{ _ ++ ", " ++ _ }}, mapped to ${realIndex.map{_.toText}.reduce{ _ ++ ", " ++ _ }}, $value, $result" ++ Text("\n"))
+            }
+
+            result
           }
         }
       }

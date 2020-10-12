@@ -46,7 +46,7 @@ object PWLCalibrationTest {
             implicit val cps = c
             tensorflow_lattice.tfl.PWLCalibration(pwl_calibration_kernel = PWLCalibrationTest.pwl_kernel, input_keypoints = PWLCalibrationTest.input_keypoints)(input_sram)
         } {
-          pwl =>
+          case (kill, pwl) =>
             val interface = pwl.getInterface
             Pipe.Foreach(iterations by I32(1)) { i =>
               interface.enq(Seq(i, I32(0)), Set(Bit(true)))

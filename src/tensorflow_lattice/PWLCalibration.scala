@@ -38,8 +38,6 @@ trait PWLCalibration {
       vec => vec.tail
     }
 
-    val input_kp_LUT = LUT[T](num_keypoints)((input_keypoints_array map {x => Bits(x.toUnchecked[T])}):_*)
-
     val lengths = (input_keypoints_array zip input_keypoints_array.tail) map {
       case (left, right) => right - left
     }
@@ -50,8 +48,6 @@ trait PWLCalibration {
           case (diff, length) => diff / length
         }) ++ Seq[scala.Double](0)
     }
-
-    val scaled_diffs_LUT = LUT[T](units, num_keypoints)(scaled_diffs.flatten map {x => Bits(x.toUnchecked[T])}:_*)
 
     // cumsum(0) handles everything before the first keypoint and cumsum(last) handles everything after.
 
@@ -81,6 +77,9 @@ trait PWLCalibration {
           override def deq(index: Seq[I32], ens: Set[Bit]): T = {
             val value = subInterface.deq(getRealIndex(index), ens)
             val d1 = index.last
+
+            val input_kp_LUT = LUT[T](num_keypoints)((input_keypoints_array map {x => Bits(x.toUnchecked[T])}):_*)
+            val scaled_diffs_LUT = LUT[T](units, num_keypoints)(scaled_diffs.flatten map {x => Bits(x.toUnchecked[T])}:_*)
 
             val cumsum_LUT = LUT[T](units, num_keypoints)((cumsum.flatten) map {x => Bits(x.toUnchecked[T])}:_*)
             //    val front_LUT = cumsum_LUT

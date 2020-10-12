@@ -82,7 +82,7 @@ object LatticeTest {
             units = 1,
             lattice_kernel = LatticeTest.lattice_kernel)(input_sram)
       } {
-        lattice =>
+        case (kill, lattice) =>
           val interface = lattice.getInterface
           Pipe.Foreach(iterations by 1) { i =>
             interface.enq(Seq(i, I32(0)), Set(Bit(true)))

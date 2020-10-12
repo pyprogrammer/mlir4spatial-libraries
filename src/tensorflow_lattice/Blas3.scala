@@ -39,10 +39,16 @@ trait Blas3 {
 
             val reads = interfaces.zipWithIndex map {
               case (interface, i) =>
-                interface.deq(Seq(batch, I32(i)), ens) * kernel_lut(I32(i), dim)
+                interface.deq(Seq(batch, I32(i)), ens)
             }
 
-            bias_LUT(dim) + reads.reduceTree {_+_}
+            mlir_libraries.debug_utils.TagVector("LinearLayerInputs", reads, ens)
+
+            val multiplied = reads.zipWithIndex map {
+              case(x, i) => x * kernel_lut(I32(i), dim)
+            }
+
+            bias_LUT(dim) + multiplied.reduceTree {_+_}
           }
         }
       }

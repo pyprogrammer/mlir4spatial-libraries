@@ -1,8 +1,8 @@
 package tensorflow_lattice
 
-import mlir_libraries.types._
 import spatial.libdsl._
 import mlir_libraries.{CoprocessorScope, Tensor => MLTensor}
+import mlir_libraries.types._
 
 trait Blas3 {
   def Dense[T:Num](bias: MLTensor[Double], kernel: MLTensor[Double])(arg: ReadableND[T])(implicit state: argon.State): ReadableND[T] = {

@@ -1,6 +1,6 @@
 package tensorflow_lattice.tests
 
-import mlir_libraries.ConversionImplicits._
+import mlir_libraries.types.TypeImplicits._
 import mlir_libraries.{CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
 import spatial.dsl._
 
@@ -46,14 +46,17 @@ object PWLCalibrationTest {
             implicit val cps = c
             tensorflow_lattice.tfl.PWLCalibration(pwl_calibration_kernel = PWLCalibrationTest.pwl_kernel, input_keypoints = PWLCalibrationTest.input_keypoints)(input_sram)
         } {
-          case (kill, pwl) =>
+          case (scope, pwl) =>
             val interface = pwl.getInterface
-            Pipe.Foreach(iterations by I32(1)) { i =>
-              interface.enq(Seq(i, I32(0)), Set(Bit(true)))
-              output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
-            }
+            Pipe {
+              Pipe.Foreach(iterations by I32(1)) { i =>
+                interface.enq(Seq(i, I32(0)), Set(Bit(true)))
+                output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
+              }
 
-            output_DRAM store output_sram
+              output_DRAM store output_sram
+              scope.kill()
+            }
         }
       }
     }

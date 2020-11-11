@@ -1,5 +1,4 @@
 package tensorflow_lattice
-
 import mlir_libraries.types._
 import mlir_libraries.utils.checkpoint
 import spatial.libdsl._

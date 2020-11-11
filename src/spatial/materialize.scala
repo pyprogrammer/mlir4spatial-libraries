@@ -1,7 +1,8 @@
 package mlir_libraries
+import types._
 
 import spatial.libdsl._
-import _root_.spatial.dsl
+import _root_.spatial.{dsl, libdsl}
 import _root_.spatial.metadata.memory._
 import _root_.spatial.node.SRAMRead
 
@@ -154,14 +155,12 @@ trait Materialization {
     finishStream.nonbuffer.dontTouch
     finishStream := false
     Pipe {
-//      val ctrs = arg.shape map { x => Counter.from(x by I32(1)) }
       Pipe.Foreach(ctrs()) {
         nd_index => {
           interface.enq(nd_index, Set(Bit(true)))
         }
       }
 
-//      val ctrs2 = arg.shape map { x => Counter.from(x by I32(1)) }
       Pipe.Foreach(ctrs()) {
         nd_index => {
           val index = utils.computeIndex(nd_index, strides)
@@ -200,39 +199,44 @@ trait Materialization {
     }
   }
 
-  def MaterializeCoproc[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
+  def MaterializeCoproc[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope, srcCtx: SrcCtx): types.ReadableND[T] = {
 
+    val dimensions = arg.shape.length
+
+    type CoprocessorLike = {
+      def enq(inputs: Seq[I32], en: Bit): Void
+      def deq(inputs: Seq[I32], en: Bit): T
+    }
+
+    val tmp = cps.escape { Vec.fromSeq(Range(0, dimensions) map {x => I32(0)}) }
+    implicit val bitsEV: Bits[Vec[I32]] = tmp
     val coprocessors = {
       Range(0, parallelization) map { _ =>
         val subInterface = arg.getInterface
-        new Coprocessor[I32, T](arg.shape.size, 1) {
+        new Coprocessor[Vec[I32], T] {
           override def coprocessorScope: CoprocessorScope = cps
 
-          override def enq(inputs: Seq[I32]): Unit = {
+          override def enq(inputs: Vec[I32]): Unit = {
             Pipe {
-              val stagedRegs = inputs map {
-                v =>
+              val stagedRegs = Range(0, dimensions) map {
+                ind =>
                   val reg = Reg[I32]
-                  reg := v
+                  reg := inputs(ind)
                   reg.value
               }
               subInterface.enq(stagedRegs, Set(Bit(true)))
             }
           }
 
-          override def deq(inputs: Seq[I32]): Seq[T] = {
-            val output = Reg[T]
-            Pipe {
-              val stagedRegs = inputs map {
-                v =>
-                  val reg = Reg[I32]
-                  reg := v
-                  reg.value
-              }
-
-              output := subInterface.deq(stagedRegs, Set(Bit(true)))
+          override def deq(inputs: Vec[I32]): T = {
+            val stagedRegs = Range(0, dimensions) map {
+              ind =>
+//                val reg = Reg[I32]
+//                reg := inputs(ind)
+//                reg.value
+                inputs(ind)
             }
-            Seq(output.value)
+            subInterface.deq(stagedRegs, Set(Bit(true)))
           }
         }
       }
@@ -253,7 +257,7 @@ trait Materialization {
         val interface = coproc.interface
         new types.Interface[T] {
           override def enq(index: Seq[I32], ens: Set[Bit]): Void = {
-            interface.enq(index, ens.toSeq reduceTree {
+            interface.enq(Vec.fromSeq(index), ens.toSeq reduceTree {
               _ && _
             })
           }
@@ -261,7 +265,7 @@ trait Materialization {
           override def deq(index: Seq[I32], ens: Set[Bit]): T = {
             interface.deq(ens.toSeq reduceTree {
               _ && _
-            }).head
+            })
           }
         }
       }

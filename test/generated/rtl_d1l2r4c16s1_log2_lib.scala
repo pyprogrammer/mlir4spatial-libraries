@@ -1,7 +1,7 @@
 package generated
 import spatial.libdsl._
 import tensorflow_lattice._
-import mlir_libraries.ConversionImplicits._
+import mlir_libraries.types.TypeImplicits._
 import mlir_libraries.DumpScope
 object rtl_d1l2r4c16s1_log2_callable {
   def rtl_d1l2r4c16s1_log2_callable[F32:Num](arg0_0: mlir_libraries.types.ReadableND[F32], arg0_1: mlir_libraries.types.ReadableND[F32], arg0_2: mlir_libraries.types.ReadableND[F32], arg0_3: mlir_libraries.types.ReadableND[F32], arg0_4: mlir_libraries.types.ReadableND[F32], arg0_5: mlir_libraries.types.ReadableND[F32], arg0_6: mlir_libraries.types.ReadableND[F32], arg0_7: mlir_libraries.types.ReadableND[F32], arg0_8: mlir_libraries.types.ReadableND[F32])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig, coprocScope: mlir_libraries.CoprocessorScope, dumpScope: DumpScope): (mlir_libraries.types.ReadableND[F32]) = {

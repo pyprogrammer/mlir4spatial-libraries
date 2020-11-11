@@ -1,12 +1,11 @@
 package tensorflow_lattice
 
-import mlir_libraries.types._
 import spatial.libdsl._
 
 import scala.reflect.ClassTag
 import mlir_libraries.{CoprocessorScope, Tensor => MLTensor}
 import _root_.spatial.dsl
-
+import mlir_libraries.types._
 object tfl extends PWLCalibration with Lattice {
 
   def CategoricalCalibration[T : Num](categorical_calibration_kernel: MLTensor[scala.Double])(arg:ReadableND[T])(implicit state: argon.State): ReadableND[T] = {

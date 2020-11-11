@@ -10,11 +10,9 @@ resolvers += Resolver.sonatypeRepo("snapshots")
 resolvers += Resolver.sonatypeRepo("releases")
 addCompilerPlugin("org.scalamacros" % "paradise" % paradise_version cross CrossVersion.full)
 
-scalacOptions ++= Seq("-explaintypes")
+scalacOptions ++= Seq("-explaintypes", "-language:experimental.macros")
 
-unmanagedSourceDirectories in Compile += baseDirectory.value / "src/mlir_libraries/"
-unmanagedSourceDirectories in Compile += baseDirectory.value / "src/tensorflow_lattice/"
-unmanagedSourceDirectories in Compile += baseDirectory.value / "src/spatial/"
+unmanagedSourceDirectories in Compile += baseDirectory.value / "src/"
 //unmanagedSourceDirectories in Compile += baseDirectory.value / "src/models/"
 //unmanagedSourceDirectories in Compile += baseDirectory.value / "generated/"
 

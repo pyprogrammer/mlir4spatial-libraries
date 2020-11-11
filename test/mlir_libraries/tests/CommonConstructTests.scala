@@ -2,7 +2,7 @@ package mlir_libraries.tests
 
 import emul.FixedPoint
 import spatial.dsl._
-import mlir_libraries.ConversionImplicits._
+import mlir_libraries.types.TypeImplicits._
 import mlir_libraries.{CoprocessorScope, OptimizationConfig, types, Tensor => MLTensor}
 
 object LatticeWithMaterializeTest {
@@ -87,7 +87,7 @@ object LatticeWithMaterializeTest {
             units = 1,
             lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(input_sram)
       } {
-        case (kill, lattice) =>
+        case (scope, lattice) =>
           val materialized = mlir_libraries.spatiallib.MaterializeSRAM()(lattice).getInterface
           Pipe.Foreach(iterations by 1) { i =>
             materialized.enq(Seq(i, I32(0)), Set(Bit(true)))
@@ -135,7 +135,7 @@ object LatticeWithMaterializeTest {
               lattice_kernel = LatticeWithMaterializeTest.lattice_kernel)(input_sram)
           mlir_libraries.spatiallib.MaterializeCoproc()(lattice)
       } {
-        case (kill, materialized) =>
+        case (scope, materialized) =>
           val interface = materialized.getInterface
           Stream {
             Pipe.Foreach(iterations by 1) { i =>
@@ -143,8 +143,11 @@ object LatticeWithMaterializeTest {
 //              output_sram(i) = materialized(Seq(i, I32(0)), Set(Bit(true)))()
             }
 
-            Pipe.Foreach(iterations by 1) { i =>
-              output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
+            Pipe {
+              Pipe.Foreach(iterations by 1) { i =>
+                output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
+              }
+              scope.kill()
             }
           }
       }

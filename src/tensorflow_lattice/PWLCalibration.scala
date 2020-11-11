@@ -1,6 +1,6 @@
 package tensorflow_lattice
 
-import mlir_libraries.types.ReadableND
+import mlir_libraries.types._
 import mlir_libraries.{CoprocessorScope, types, Tensor => MLTensor}
 import spatial.libdsl._
 

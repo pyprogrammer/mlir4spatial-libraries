@@ -1,7 +1,7 @@
 package tensorflow_lattice.tests
 
 import spatial.dsl._
-import mlir_libraries.ConversionImplicits._
+import mlir_libraries.types.TypeImplicits._
 import mlir_libraries.{CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
 
 object LatticeTest {
@@ -82,11 +82,14 @@ object LatticeTest {
             units = 1,
             lattice_kernel = LatticeTest.lattice_kernel)(input_sram)
       } {
-        case (kill, lattice) =>
+        case (scope, lattice) =>
           val interface = lattice.getInterface
-          Pipe.Foreach(iterations by 1) { i =>
-            interface.enq(Seq(i, I32(0)), Set(Bit(true)))
-            output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
+          Pipe {
+            Pipe.Foreach(iterations by 1) { i =>
+              interface.enq(Seq(i, I32(0)), Set(Bit(true)))
+              output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
+            }
+            scope.kill()
           }
 
           output_DRAM store output_sram

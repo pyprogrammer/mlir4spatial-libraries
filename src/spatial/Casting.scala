@@ -1,5 +1,5 @@
 package mlir_libraries
-import mlir_libraries.types.{Interface, ReadableND}
+import types._
 import spatial.dsl._
 import forge.tags.stateful
 

@@ -1,14 +1,14 @@
 package generated
 import spatial.libdsl._
-import mlir_libraries.ConversionImplicits._
+import mlir_libraries.types.TypeImplicits._
 import mlir_libraries.DumpScope
 @spatial class rtl_d1l2r4c16s1_log2_coproc(lattice_loops: Int, pwl_iterations: Int) extends SpatialTest {
 
-  override def compileArgs = "--noModifyStream --max_cycles=10000"
+  override def compileArgs = "--max_cycles=40000"
 
   import spatial.dsl._
   type T = FixPt[TRUE, _9, _23]
-  val iterations = 1
+  val iterations = 4
   implicit val cfg = mlir_libraries.OptimizationConfig(lattice_loops = lattice_loops, pwl_iterations = pwl_iterations)
   def main(args: Array[String]) : Unit = {
     val dram_0 = DRAM[T](I32(iterations), I32(1))
@@ -81,18 +81,17 @@ import mlir_libraries.DumpScope
               implicit val cps = scope
               rtl_d1l2r4c16s1_log2_callable.rtl_d1l2r4c16s1_log2_callable(sram_0, sram_1, sram_2, sram_3, sram_4, sram_5, sram_6, sram_7, sram_8)
             } {
-            case (kill, tmp) =>
+            case (scope, tmp) =>
               val result = tmp.getInterface
-
-              Foreach(I32(iterations) by I32(1)) { i =>
+              'Enqueue.Pipe.Foreach(I32(iterations) by I32(1)) { i =>
                 result.enq(Seq(i, I32(0)), Set(Bit(true)))
               }
 
-              Sequential {
-                Pipe.Foreach(I32(iterations) by I32(1)) { i =>
+              Pipe {
+                'Dequeue.Pipe.Foreach(I32(iterations) by I32(1)) { i =>
                   output_sram(i) = result.deq(Seq(i, I32(0)), Set(Bit(true)))
                 }
-                kill := true
+                scope.kill()
               }
           }
           output_DRAM store output_sram
@@ -103,7 +102,7 @@ import mlir_libraries.DumpScope
       val golden = loadCSV1D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/output.csv", ",")
 
         val received = getMem(output_DRAM)
-    
+
         Foreach(I32(iterations) by 1) {
           iter =>
             val diff = golden(iter) - received(iter)

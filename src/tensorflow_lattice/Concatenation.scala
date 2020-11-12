@@ -43,8 +43,9 @@ trait Concatenation {
           def prune_args(index: Seq[dsl.I32], ens: Set[dsl.Bit]) = {
             // compute breakpoints for each respective bank. This can be phrased as a priority mux across all banks, with
             // the enable signal being whether the ub[axis] > index[axis] && index[axis] >= ub[axis-1]
-            val target_index = Reg[I32]
-            target_index := index(concat_axis)
+//            val target_index = Reg[I32]
+//            target_index := index(concat_axis)
+            val target_index = index(concat_axis)
 
             val enables: Seq[Bit] = breakpoints.zipWithIndex map {
               case (bp, ind) =>

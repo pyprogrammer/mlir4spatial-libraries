@@ -82,7 +82,6 @@ trait PWLCalibration {
             val scaled_diffs_LUT = LUT[T](units, num_keypoints)(scaled_diffs.flatten map {x => Bits(x.toUnchecked[T])}:_*)
 
             val cumsum_LUT = LUT[T](units, num_keypoints)((cumsum.flatten) map {x => Bits(x.toUnchecked[T])}:_*)
-            //    val front_LUT = cumsum_LUT
             val front_LUT = LUT[T](units, num_keypoints)((cumsum.flatten) map {x => Bits(x.toUnchecked[T])}:_*)
 
             // Handles cases where the input is within the keypoints.

@@ -8,7 +8,7 @@ import mlir_libraries.DumpScope
 
   import spatial.dsl._
   type T = FixPt[TRUE, _9, _23]
-  val iterations = 4
+  val iterations = 1
   implicit val cfg = mlir_libraries.OptimizationConfig(lattice_loops = lattice_loops, pwl_iterations = pwl_iterations)
   def main(args: Array[String]) : Unit = {
     val dram_0 = DRAM[T](I32(iterations), I32(1))
@@ -114,4 +114,6 @@ import mlir_libraries.DumpScope
 }
 
 class rtl_d1l2r4c16s1_log2_coproc_funroll extends rtl_d1l2r4c16s1_log2_coproc(0, 1)
+class rtl_d1l2r4c16s1_log2_coproc_funroll2 extends rtl_d1l2r4c16s1_log2_coproc(0, 1)
+class rtl_d1l2r4c16s1_log2_coproc_funroll3 extends rtl_d1l2r4c16s1_log2_coproc(0, 1)
 

@@ -63,10 +63,7 @@ trait Lattice {
 
             val intermediate_values = Range(0, dimensions) map {
               dim =>
-                val reg = Reg[T]
-                reg.explicitName = s"LatticeInputs$dim"
-                reg := interfaces(dim % parallel_dimensions).deq(Seq(batch, unit, I32(dim)), ens)
-                reg.value
+                interfaces(dim % parallel_dimensions).deq(Seq(batch, unit, I32(dim)), ens)
             }
 
             val sramReads = intermediate_values

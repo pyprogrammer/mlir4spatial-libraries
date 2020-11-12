@@ -93,7 +93,10 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
 
   protected val SCALE_FACTOR = 4
   protected val INPUT_FIFO_DEPTH = 128
-  protected val OUTPUT_FIFO_DEPTH = 16
+  protected val OUTPUT_FIFO_DEPTH = 128
+  protected val INITIAL_CREDITS = OUTPUT_FIFO_DEPTH - 2
+  protected val DELAYED_CREDITS = 1
+  protected val CREDIT_FIFO_DEPTH = 16
   protected val id = getId
 
   coprocessorScope.register(instantiate)
@@ -120,6 +123,16 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     val central_input_fifo = FIFO[TaggedInput[In_T]](I32(INPUT_FIFO_DEPTH))
     central_input_fifo.explicitName = s"CentralInputFifo${id}"
 
+//    val credit_fifo = FIFO[I32](I32(CREDIT_FIFO_DEPTH))
+
+    // Initialize with DELAYED_CREDITS per input fifo
+//    'CoprocessorCreditAllocator.Stream.Foreach(DELAYED_CREDITS by 1) {
+//      _ =>
+//        input_fifos.zipWithIndex foreach {
+//          case (_, ind) => credit_fifo.enq(I32(ind))
+//        }
+//    }
+
     // now execute the actual kernel
     'CoprocessorArbiter.Stream.Foreach(*) {
       _ => {
@@ -129,6 +142,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
         ntReg2.explicitName = s"NTReg2_${id}"
 
         'CoprocessorArbiterSubEnqs.Pipe {
+//          val credits = input_fifos map {_ => I32(INITIAL_CREDITS)}
           val nextTask = priorityDeq(input_fifos:_*)
           ntReg1.enq(nextTask)
           ntReg2.enq(nextTask)
@@ -137,9 +151,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
           central_input_fifo.enq(ntReg2.deq)
         }
         'CoprocessorArbiterChildSignal.Pipe {
-          val r = Reg[TaggedInput[In_T]]
-          r := ntReg1.deq
-          enq(r.payload)
+          enq(ntReg1.deq.payload)
         }
       }
     }
@@ -147,10 +159,10 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     'Coprocessor.Stream.Foreach(*) {
       _ =>
         Pipe {
-
           val outputInfo = central_input_fifo.deq
           val destination = outputInfo.id
           val results = deq(outputInfo.payload)
+          //          credit_fifo.enq(destination)
           output_fifos.zipWithIndex foreach {
             case (output_fifo, output_index) =>
               val write_enable = I32(output_index) === destination

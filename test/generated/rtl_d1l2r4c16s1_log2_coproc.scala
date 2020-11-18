@@ -8,7 +8,7 @@ import mlir_libraries.DumpScope
 
   import spatial.dsl._
   type T = FixPt[TRUE, _9, _23]
-  val iterations = 1
+  val iterations = 8
   implicit val cfg = mlir_libraries.OptimizationConfig(lattice_loops = lattice_loops, pwl_iterations = pwl_iterations)
   def main(args: Array[String]) : Unit = {
     val dram_0 = DRAM[T](I32(iterations), I32(1))
@@ -87,7 +87,7 @@ import mlir_libraries.DumpScope
                 result.enq(Seq(i, I32(0)), Set(Bit(true)))
               }
 
-              Pipe {
+              Sequential {
                 'Dequeue.Pipe.Foreach(I32(iterations) by I32(1)) { i =>
                   output_sram(i) = result.deq(Seq(i, I32(0)), Set(Bit(true)))
                 }
@@ -103,10 +103,12 @@ import mlir_libraries.DumpScope
 
         val received = getMem(output_DRAM)
 
-        Foreach(I32(iterations) by 1) {
+        Foreach(I32(iterations) by I32(1)) {
           iter =>
-            val diff = golden(iter) - received(iter)
-            assert(diff < 0.001, r"$diff > 0.001 at iteration $iter")
+            val gold = golden(iter)
+            val rec = received(iter)
+            val diff = abs(gold - rec)
+            assert(diff < 0.001.toUnchecked[T], r"$diff > 0.001 at iteration $iter. Expected: $gold, received: $rec")
         }
     }
     assert(Bit(true), "Compiles and runs")

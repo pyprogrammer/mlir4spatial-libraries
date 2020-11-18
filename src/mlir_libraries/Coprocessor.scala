@@ -94,9 +94,9 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
   protected val SCALE_FACTOR = 4
   protected val INPUT_FIFO_DEPTH = 128
   protected val OUTPUT_FIFO_DEPTH = 128
-  protected val INITIAL_CREDITS = OUTPUT_FIFO_DEPTH - 2
-  protected val DELAYED_CREDITS = 1
-  protected val CREDIT_FIFO_DEPTH = 16
+  protected val PREALLOC_CREDITS = OUTPUT_FIFO_DEPTH / 2
+  protected val DELAYED_CREDITS = OUTPUT_FIFO_DEPTH - PREALLOC_CREDITS - 1
+
   protected val id = getId
 
   coprocessorScope.register(instantiate)
@@ -104,6 +104,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
   // Need to construct a new type and FIFO thingy.
   protected val input_fifos = collection.mutable.Buffer[FIFO[TaggedInput[In_T]]]()
   protected val output_fifos = collection.mutable.Buffer[FIFO[Out_T]]()
+  protected val credit_fifos = collection.mutable.Buffer[FIFO[I32]]()
 
   var frozen: Boolean = false
 
@@ -123,58 +124,92 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     val central_input_fifo = FIFO[TaggedInput[In_T]](I32(INPUT_FIFO_DEPTH))
     central_input_fifo.explicitName = s"CentralInputFifo${id}"
 
-//    val credit_fifo = FIFO[I32](I32(CREDIT_FIFO_DEPTH))
+    // Continuously pump this fifo full to keep arbiter running
+    val prealloc_fifo = FIFO[I32](I32(4))
 
-    // Initialize with DELAYED_CREDITS per input fifo
-//    'CoprocessorCreditAllocator.Stream.Foreach(DELAYED_CREDITS by 1) {
-//      _ =>
-//        input_fifos.zipWithIndex foreach {
-//          case (_, ind) => credit_fifo.enq(I32(ind))
-//        }
-//    }
-
-    // now execute the actual kernel
-    'CoprocessorArbiter.Stream.Foreach(*) {
-      _ => {
-        val ntReg1 = FIFO[TaggedInput[In_T]](I32(16))
-        ntReg1.explicitName = s"NTReg1_${id}"
-        val ntReg2 = FIFO[TaggedInput[In_T]](I32(16))
-        ntReg2.explicitName = s"NTReg2_${id}"
-
-        'CoprocessorArbiterSubEnqs.Pipe {
-//          val credits = input_fifos map {_ => I32(INITIAL_CREDITS)}
-          val nextTask = priorityDeq(input_fifos:_*)
-          ntReg1.enq(nextTask)
-          ntReg2.enq(nextTask)
+    // This is so that it can start running.
+    'CoprocessorBusyStuffing.Stream.Foreach(DELAYED_CREDITS by 1) {
+      _ =>
+        Stream.Foreach(input_fifos.size by 1) {
+          ind => prealloc_fifo.enq(ind)
         }
-        'CoprocessorArbiterCentralInputEnq.Pipe {
-          central_input_fifo.enq(ntReg2.deq)
-        }
-        'CoprocessorArbiterChildSignal.Pipe {
-          enq(ntReg1.deq.payload)
+    }
+
+    Sequential {
+      val credits = input_fifos.zipWithIndex map { case (_, ind) =>
+        val creditReg = Reg[I32](I32(PREALLOC_CREDITS))
+        creditReg.explicitName = s"CreditReg${id}_${ind}"
+        creditReg := I32(PREALLOC_CREDITS)
+        creditReg
+      }
+
+      // now execute the actual kernel
+      'CoprocessorArbiter.Stream.Foreach(*) {
+        _ => {
+          val ntReg1 = FIFO[TaggedInput[In_T]](I32(16))
+          ntReg1.explicitName = s"NTReg1_${id}"
+          val ntReg2 = FIFO[TaggedInput[In_T]](I32(16))
+          ntReg2.explicitName = s"NTReg2_${id}"
+
+          'CoprocessorArbiterSubEnqs.Pipe {
+            val allCreditFifos = credit_fifos ++ Seq(prealloc_fifo)
+            val creditUpdate = priorityDeq(allCreditFifos:_*)
+
+            val priorityDeqEnables = credits map {_ > I32(0)}
+
+            val nextTask: TaggedInput[In_T] = priorityDeq(input_fifos.toList, priorityDeqEnables.toList)
+            // update the appropriate credit reg
+            credits.zipWithIndex foreach {
+              case (cred, ind) =>
+                val isNextTask = I32(ind) === nextTask.id
+                val receivedCredit = I32(ind) === creditUpdate
+
+                cred := cred + (receivedCredit).to[I32] - isNextTask.to[I32]
+            }
+            ntReg1.enq(nextTask)
+            ntReg2.enq(nextTask)
+          }
+          'CoprocessorArbiterCentralInputEnq.Pipe {
+            central_input_fifo.enq(ntReg2.deq)
+          }
+          'CoprocessorArbiterChildSignal.Pipe {
+            enq(ntReg1.deq.payload)
+          }
         }
       }
     }
 
-    'Coprocessor.Stream.Foreach(*) {
-      _ =>
-        Pipe {
-          val outputInfo = central_input_fifo.deq
+    val flushFIFO = FIFO[TaggedInput[In_T]](I32(8))
+    flushFIFO.explicitName = "flushFifo"
+    'CoprocessorDriver.Stream(*) {
+      val blank = TaggedInput(I32(-1), Bits[In_T].zero)
+      flushFIFO.enq(blank)
+    }
+
+    'Coprocessor.Pipe.Foreach(*) {
+        _ =>
+          val outputInfo = priorityDeq(central_input_fifo, flushFIFO)
           val destination = outputInfo.id
-          val results = deq(outputInfo.payload)
-          //          credit_fifo.enq(destination)
-          output_fifos.zipWithIndex foreach {
-            case (output_fifo, output_index) =>
-              val write_enable = I32(output_index) === destination
-              output_fifo.enq(results, write_enable)
-          }
-        }
+          val valid = destination !== I32(-1)
+          __ifThenElse(valid, {
+            Pipe {
+              val results = deq(outputInfo.payload)
+              output_fifos.zipWithIndex foreach {
+                case (output_fifo, output_index) =>
+                  val write_enable = I32(output_index) === destination
+                  output_fifo.enq(results, write_enable)
+              }
+            }
+            I32(0)
+          }, {
+            I32(0)
+          })
     }
   }
 
   // Process function takes an input read from a fifo and writes to the corresponding output fifo.
 
-  class CoprocessorInterface(input_stream: FIFO[TaggedInput[In_T]], output_stream: FIFO[Out_T], id: Int) {
+  class CoprocessorInterface(input_stream: FIFO[TaggedInput[In_T]], output_stream: FIFO[Out_T], credit_stream: FIFO[I32], id: Int) {
     var enqueued = false
     var dequeued = false
 
@@ -184,6 +219,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     }
 
     def deq(en: Bit = Bit(true)): Out_T = {
+      credit_stream.enq(I32(id), en)
       output_stream.deq(en)
     }
   }
@@ -210,8 +246,11 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
 
       output_fifos.append(output_fifo)
 
-      (new_input_fifo, output_fifo)
+      val credit_fifo = FIFO[I32](I32(OUTPUT_FIFO_DEPTH))
+      credit_fifo.explicitName = f"CreditFIFO_${id}_${iid}"
+
+      (new_input_fifo, output_fifo, credit_fifo)
     }
-    new CoprocessorInterface(io._1, io._2, iid)
+    new CoprocessorInterface(io._1, io._2, io._3, iid)
   }
 }

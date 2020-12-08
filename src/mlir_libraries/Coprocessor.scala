@@ -2,11 +2,11 @@ package mlir_libraries
 
 import forge.tags.api
 import spatial.libdsl._
-import _root_.spatial.metadata.memory._
+import spatial.metadata.memory._
 import argon.State
 import mlir_libraries.Coprocessor.getId
 
-class CoprocessorScope(val coprocessorScopeId: scala.Int, val setupScopeId: scala.Int, killReg: Option[Reg[Bit]] = None)(implicit s: argon.State) {
+class CoprocessorScope(val coprocessorScopeId: argon.BundleHandle, val setupScopeId: argon.BundleHandle, killReg: Option[Reg[Bit]] = None)(implicit s: argon.State) {
   type T = () => Any
   val state: argon.State = s
 
@@ -22,15 +22,11 @@ class CoprocessorScope(val coprocessorScopeId: scala.Int, val setupScopeId: scal
     }
   }
 
-  private def escapeToScope[T](id: Int, thunk: => T): T = {
-    val bundle = state.bundleStack(id)
-    val (result, newBundle) = state.WithScope({
+  private def escapeToScope[T](id: argon.BundleHandle, thunk: => T): T = {
+    state.WithScope(id){
       val tmp = thunk
       tmp
-    }, bundle)
-    // store the new bundle back
-    state.bundleStack.update(coprocessorScopeId, newBundle)
-    result
+    }
   }
 
   def escape[T](thunk: => T): T = escapeToScope(coprocessorScopeId, thunk)
@@ -44,13 +40,11 @@ class CoprocessorScope(val coprocessorScopeId: scala.Int, val setupScopeId: scal
 
 object CoprocessorScope {
   def apply[T](init: CoprocessorScope => T)(func: (CoprocessorScope, T) => Any)(implicit state: argon.State): Void = {
-    val setupScopeId: Int = state.bundleStack.size
-    val coprocScopeId: Int = state.bundleStack.size
-    println(s"BS Size: ${state.bundleStack.size}")
+    val setupScopeId = state.GetCurrentHandle()
+    val coprocScopeId = state.GetCurrentHandle()
     if (Options.Coproc) {
       val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill")
-      'CoprocessorScope.Stream(breakWhen = kill).Foreach(I32(1) by I32(1)) {
-        _ =>
+      'CoprocessorScope.Stream(breakWhen = kill)(implicitly, implicitly) {
           // Stage into current scope
           val scope = new CoprocessorScope(coprocScopeId, setupScopeId, Some(kill))
           val initialized = init(scope)
@@ -91,11 +85,12 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
   type InT = In_T
   type OutT = Out_T
 
-  protected val SCALE_FACTOR = 4
   protected val INPUT_FIFO_DEPTH = 128
   protected val OUTPUT_FIFO_DEPTH = 128
-  protected val PREALLOC_CREDITS = OUTPUT_FIFO_DEPTH / 2
-  protected val DELAYED_CREDITS = OUTPUT_FIFO_DEPTH - PREALLOC_CREDITS - 1
+  protected val PREALLOC_CREDITS = 16 / 2
+  protected val DELAYED_CREDITS = 16 - PREALLOC_CREDITS - 2
+
+  private val CREDIT_REPLICANTS = 4
 
   protected val id = getId
 
@@ -113,7 +108,12 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
 
   def enq(input: In_T): Unit
 
-  def deq(inputs: In_T): Out_T
+  def deq(inputs: In_T, ens: Set[Bit]): Out_T
+
+  def numInterfaces = {
+    assert(frozen, "Must be frozen before getting the number of interfaces")
+    input_fifos.size
+  }
 
   def instantiate(): Void = {
     assert(!frozen, "Shouldn't be frozen yet")
@@ -128,53 +128,54 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     val prealloc_fifo = FIFO[I32](I32(4))
 
     // This is so that it can start running.
-    'CoprocessorBusyStuffing.Stream.Foreach(DELAYED_CREDITS by 1) {
+    'CoprocessorBusyStuffing.Pipe.Foreach(DELAYED_CREDITS by 1) {
       _ =>
         Stream.Foreach(input_fifos.size by 1) {
           ind => prealloc_fifo.enq(ind)
         }
     }
 
-    Sequential {
-      val credits = input_fifos.zipWithIndex map { case (_, ind) =>
-        val creditReg = Reg[I32](I32(PREALLOC_CREDITS))
-        creditReg.explicitName = s"CreditReg${id}_${ind}"
-        creditReg := I32(PREALLOC_CREDITS)
-        creditReg
-      }
+    val credits = RegFile[I32](I32(CREDIT_REPLICANTS), I32(numInterfaces), Range(0, CREDIT_REPLICANTS * numInterfaces) map {_ => I32(PREALLOC_CREDITS / CREDIT_REPLICANTS)})
+    credits.explicitName = s"CreditRegFile_${id}"
 
-      // now execute the actual kernel
-      'CoprocessorArbiter.Stream.Foreach(*) {
-        _ => {
-          val ntReg1 = FIFO[TaggedInput[In_T]](I32(16))
-          ntReg1.explicitName = s"NTReg1_${id}"
-          val ntReg2 = FIFO[TaggedInput[In_T]](I32(16))
-          ntReg2.explicitName = s"NTReg2_${id}"
+    // now execute the actual kernel
+    'CoprocessorArbiter.Stream.Foreach(*) {
+      iter => {
+        val ntReg1 = FIFO[TaggedInput[In_T]](I32(16))
+        ntReg1.explicitName = s"NTReg1_${id}"
+        val ntReg2 = FIFO[TaggedInput[In_T]](I32(16))
+        ntReg2.explicitName = s"NTReg2_${id}"
 
-          'CoprocessorArbiterSubEnqs.Pipe {
-            val allCreditFifos = credit_fifos ++ Seq(prealloc_fifo)
-            val creditUpdate = priorityDeq(allCreditFifos:_*)
+        'CoprocessorArbiterSubEnqs.Pipe.haltIfStarved {
+          val allCreditFifos = credit_fifos ++ Seq(prealloc_fifo)
 
-            val priorityDeqEnables = credits map {_ > I32(0)}
+          val creditIter = iter % I32(CREDIT_REPLICANTS)
 
-            val nextTask: TaggedInput[In_T] = priorityDeq(input_fifos.toList, priorityDeqEnables.toList)
-            // update the appropriate credit reg
-            credits.zipWithIndex foreach {
-              case (cred, ind) =>
-                val isNextTask = I32(ind) === nextTask.id
-                val receivedCredit = I32(ind) === creditUpdate
+          val creditUpdate = priorityDeq(allCreditFifos:_*)
 
-                cred := cred + (receivedCredit).to[I32] - isNextTask.to[I32]
-            }
-            ntReg1.enq(nextTask)
-            ntReg2.enq(nextTask)
+          val priorityDeqEnables = Range(0, numInterfaces) map {
+            iid =>
+              credits(creditIter, I32(iid)) > I32(0)
           }
-          'CoprocessorArbiterCentralInputEnq.Pipe {
-            central_input_fifo.enq(ntReg2.deq)
+
+          val nextTask: TaggedInput[In_T] = priorityDeq(input_fifos.toList, priorityDeqEnables.toList)
+          // update the appropriate credit reg
+
+          Range(0, numInterfaces) foreach {
+            iid =>
+              val isNextTask = I32(iid) === nextTask.id
+              val receivedCredit = I32(iid) === creditUpdate
+              val update = receivedCredit.to[I32] - isNextTask.to[I32]
+              credits(creditIter, I32(iid)) = credits(creditIter, I32(iid)) + update
           }
-          'CoprocessorArbiterChildSignal.Pipe {
-            enq(ntReg1.deq.payload)
-          }
+          ntReg1.enq(nextTask)
+          ntReg2.enq(nextTask)
+        }
+        'CoprocessorArbiterCentralInputEnq.Pipe {
+          central_input_fifo.enq(ntReg2.deq)
+        }
+        'CoprocessorArbiterChildSignal.Pipe {
+          enq(ntReg1.deq.payload)
         }
       }
     }
@@ -191,19 +192,12 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
           val outputInfo = priorityDeq(central_input_fifo, flushFIFO)
           val destination = outputInfo.id
           val valid = destination !== I32(-1)
-          __ifThenElse(valid, {
-            Pipe {
-              val results = deq(outputInfo.payload)
-              output_fifos.zipWithIndex foreach {
-                case (output_fifo, output_index) =>
-                  val write_enable = I32(output_index) === destination
-                  output_fifo.enq(results, write_enable)
-              }
-            }
-            I32(0)
-          }, {
-            I32(0)
-          })
+          val results = deq(outputInfo.payload, Set(valid))
+          output_fifos.zipWithIndex foreach {
+            case (output_fifo, output_index) =>
+              val write_enable = I32(output_index) === destination
+              output_fifo.enq(results, write_enable)
+          }
     }
   }
 

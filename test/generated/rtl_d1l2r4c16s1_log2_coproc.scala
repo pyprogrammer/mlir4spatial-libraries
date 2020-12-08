@@ -2,13 +2,13 @@ package generated
 import spatial.libdsl._
 import mlir_libraries.types.TypeImplicits._
 import mlir_libraries.DumpScope
-@spatial class rtl_d1l2r4c16s1_log2_coproc(lattice_loops: Int, pwl_iterations: Int) extends SpatialTest {
+@spatial class rtl_d1l2r4c16s1_log2_coproc(run_iterations: Int, lattice_loops: Int, pwl_iterations: Int) extends SpatialTest {
 
-  override def compileArgs = "--max_cycles=40000"
+  override def compileArgs = "--max_cycles=40000 --vv"
 
   import spatial.dsl._
   type T = FixPt[TRUE, _9, _23]
-  val iterations = 8
+  val iterations = run_iterations
   implicit val cfg = mlir_libraries.OptimizationConfig(lattice_loops = lattice_loops, pwl_iterations = pwl_iterations)
   def main(args: Array[String]) : Unit = {
     val dram_0 = DRAM[T](I32(iterations), I32(1))
@@ -75,28 +75,32 @@ import mlir_libraries.DumpScope
       }
 
       Pipe {
-          val output_sram = SRAM[T](I32(iterations))
-          mlir_libraries.CoprocessorScope {
-            scope =>
-              implicit val cps = scope
-              rtl_d1l2r4c16s1_log2_callable.rtl_d1l2r4c16s1_log2_callable(sram_0, sram_1, sram_2, sram_3, sram_4, sram_5, sram_6, sram_7, sram_8)
-            } {
-            case (scope, tmp) =>
-              val result = tmp.getInterface
-              'Enqueue.Pipe.Foreach(I32(iterations) by I32(1)) { i =>
-                result.enq(Seq(i, I32(0)), Set(Bit(true)))
-              }
+        val output_sram = SRAM[T](I32(iterations))
+        dumpScope.setSramScope
+        mlir_libraries.CoprocessorScope {
+          scope =>
+            implicit val cps = scope
+            rtl_d1l2r4c16s1_log2_callable.rtl_d1l2r4c16s1_log2_callable(sram_0, sram_1, sram_2, sram_3, sram_4, sram_5, sram_6, sram_7, sram_8)
+          } {
+          case (scope, tmp) =>
+            val result = tmp.getInterface
+            'Enqueue.Pipe.Foreach(I32(iterations) by I32(1)) { i =>
+              result.enq(Seq(i, I32(0)), Set(Bit(true)))
+            }
 
-              Sequential {
-                'Dequeue.Pipe.Foreach(I32(iterations) by I32(1)) { i =>
-                  output_sram(i) = result.deq(Seq(i, I32(0)), Set(Bit(true)))
-                }
-                scope.kill()
+            Sequential {
+              'Dequeue.Pipe.Foreach(I32(iterations) by I32(1)) { i =>
+                output_sram(i) = result.deq(Seq(i, I32(0)), Set(Bit(true)))
               }
-          }
-          output_DRAM store output_sram
+              scope.kill()
+            }
+        }
+        output_DRAM store output_sram
+        dumpScope.store
       }
     }
+
+    dumpScope.dump
 
     if (mlir_libraries.Options.Verify) {
       val golden = loadCSV1D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/output.csv", ",")
@@ -115,7 +119,7 @@ import mlir_libraries.DumpScope
   }
 }
 
-class rtl_d1l2r4c16s1_log2_coproc_funroll extends rtl_d1l2r4c16s1_log2_coproc(0, 1)
-class rtl_d1l2r4c16s1_log2_coproc_funroll2 extends rtl_d1l2r4c16s1_log2_coproc(0, 1)
-class rtl_d1l2r4c16s1_log2_coproc_funroll3 extends rtl_d1l2r4c16s1_log2_coproc(0, 1)
+class rtl_d1l2r4c16s1_log2_coproc_funroll1 extends rtl_d1l2r4c16s1_log2_coproc(1, 0, 1)
+class rtl_d1l2r4c16s1_log2_coproc_funroll2 extends rtl_d1l2r4c16s1_log2_coproc(2, 0, 1)
+class rtl_d1l2r4c16s1_log2_coproc_funroll4 extends rtl_d1l2r4c16s1_log2_coproc(4, 0, 1)
 

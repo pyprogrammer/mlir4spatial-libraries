@@ -6,7 +6,7 @@ import _root_.spatial.dsl
 
 class TestProcessor(scope: mlir_libraries.CoprocessorScope) extends mlir_libraries.Coprocessor[I32, I32] {
   override def coprocessorScope: CoprocessorScope = scope
-  override def deq(inputs: InT): OutT = {
+  override def deq(inputs: InT, ens: Set[Bit]): OutT = {
     inputs + I32(1)
   }
 

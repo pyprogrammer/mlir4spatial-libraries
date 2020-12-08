@@ -119,12 +119,10 @@ object LatticeWithMaterializeTest {
     val input_DRAM = DRAM[T](iterations, dimensions)
     setMem(input_DRAM, Array((LatticeWithMaterializeTest.test_inputs map { argon.uconst[T](_) }):_*))
     val output_DRAM = DRAM[T](I32(iterations))
-    println(s"BS Size: ${implicitly[argon.State].bundleStack.size}")
     Accel {
       val input_sram = SRAM[T](iterations, dimensions)
       input_sram load input_DRAM(0 :: iterations, 0 :: dimensions)
       val output_sram = SRAM[T](iterations)
-      println(s"BS Size: ${implicitly[argon.State].bundleStack.size}")
       CoprocessorScope {
         scope =>
           implicit val sc = scope

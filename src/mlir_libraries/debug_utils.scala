@@ -45,20 +45,12 @@ object debug_utils {
 
 class DumpScope(implicit state: argon.State) {
   // current id
-  val scope_id = state.bundleStack.size
-  val dumps = new ListBuffer[() => Unit]
-  val stores = new ListBuffer[() => Unit]
+  private val scope_id = state.GetCurrentHandle()
+  private val dumps = new ListBuffer[() => Unit]
+  private val stores = new ListBuffer[() => Unit]
+  private var sramScopeId: argon.BundleHandle = _
 
-  private def escape[T](thunk: => T): T = {
-    val bundle = state.bundleStack(scope_id)
-    val (result, newBundle) = state.WithScope({
-      val tmp = thunk
-      tmp
-    }, bundle)
-    // store the new bundle back
-    state.bundleStack.update(scope_id, newBundle)
-    result
-  }
+  private def escape[T](id: argon.BundleHandle)(thunk: => T): T = state.WithScope(id){thunk}
 
   private def computeStrides[T: Num](shape: Seq[T])(implicit state: argon.State): Seq[T] = {
     val strides = shape.scanRight(1.to[T]) {
@@ -68,10 +60,9 @@ class DumpScope(implicit state: argon.State) {
     strides.drop(1)
   }
 
-
-
   def dump[T: Num](name: String)(arg: types.ReadableND[T]): types.ReadableND[T] = {
-    val (validDram, dram, requestDram) = escape {
+
+    val (validDram, dram, requestDram) = escape(scope_id) {
       val escapeDram = DRAM[T](arg.size)
       escapeDram.explicitName = f"dump_DRAM_$name"
 
@@ -92,16 +83,17 @@ class DumpScope(implicit state: argon.State) {
 
     println(s"Banking by $N: ${arg.shape}")
 
-    val intermediate = SRAM[T](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1))
+    val intermediate = escape(sramScopeId) { SRAM[T](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1)) }
     intermediate.explicitName = f"dump_SRAM_$name"
 
-    val accessSram = SRAM[I32](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1))
+    val accessSram = escape(sramScopeId) { SRAM[I32](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1)) }
     accessSram.explicitName = f"dump_SRAM_valid_$name"
 
-    val requestSram = SRAM[I32](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1))
+    val requestSram = escape(sramScopeId) { SRAM[I32](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1)) }
     requestSram.explicitName = f"dump_SRAM_rqst_$name"
 
     val strides = computeStrides(arg.shape)
+
 
     stores.append(() => {
       dram store intermediate
@@ -127,7 +119,7 @@ class DumpScope(implicit state: argon.State) {
 
         new types.Interface[T] {
           override def enq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): Void = {
-            argon.stage(spatial.node.SRAMWrite(requestSram,1.to[I32],Seq(utils.computeIndex(index, strides)), ens))
+            requestSram.write(1.to[I32], Seq(utils.computeIndex(index, strides)), ens)
             debug_utils.TagVector(s"dump_enq_$name", index, ens)
             subInterface.enq(index, ens)
           }
@@ -135,8 +127,8 @@ class DumpScope(implicit state: argon.State) {
           override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = {
             val v = subInterface.deq(index, ens)
             debug_utils.TagVector(s"dump_deq_$name", index, ens)
-            argon.stage(spatial.node.SRAMWrite(intermediate,v,Seq(utils.computeIndex(index, strides)), ens))
-            argon.stage(spatial.node.SRAMWrite(accessSram,1.to[I32],Seq(utils.computeIndex(index, strides)), ens))
+            intermediate.write(v,Seq(utils.computeIndex(index, strides)), ens)
+            accessSram.write(1.to[I32],Seq(utils.computeIndex(index, strides)), ens)
             v
           }
         }
@@ -148,11 +140,19 @@ class DumpScope(implicit state: argon.State) {
 
   def store: Unit = {
     println(s"Stores: $stores")
-    stores foreach {x => x()}
+    escape(sramScopeId) {
+      stores foreach { x => x() }
+    }
   }
 
   def dump = {
     println(s"Dumps: $dumps")
-    dumps foreach {x => x()}
+    escape(scope_id) {
+      dumps foreach { x => x() }
+    }
+  }
+
+  def setSramScope = {
+    sramScopeId = state.GetCurrentHandle()
   }
 }

@@ -227,15 +227,12 @@ trait Materialization {
             subInterface.enq(stagedRegs, Set(Bit(true)))
           }
 
-          override def deq(inputs: Vec[I32]): T = {
+          override def deq(inputs: Vec[I32], ens: Set[Bit]): T = {
             val stagedRegs = Range(0, dimensions) map {
               ind =>
-//                val reg = Reg[I32]
-//                reg := inputs(ind)
-//                reg.value
                 inputs(ind)
             }
-            subInterface.deq(stagedRegs, Set(Bit(true)))
+            subInterface.deq(stagedRegs, ens)
           }
         }
       }

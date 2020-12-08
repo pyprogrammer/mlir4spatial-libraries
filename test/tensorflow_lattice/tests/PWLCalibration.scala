@@ -34,9 +34,7 @@ object PWLCalibrationTest {
       argon.uconst[T](_)
     }): _*))
     val output_DRAM = DRAM[T](I32(PWLCalibrationTest.iterations))
-    System.out.println(s"!!!!!!!!BS Size: ${implicitly[argon.State].bundleStack.size}")
     Accel {
-      System.out.println(s"BS Size: ${implicitly[argon.State].bundleStack.size}")
       val input_sram = SRAM[T](iterations, dimensions)
       input_sram load input_DRAM(I32(0) :: iterations, I32(0) :: dimensions)
       val output_sram = SRAM[T](iterations)

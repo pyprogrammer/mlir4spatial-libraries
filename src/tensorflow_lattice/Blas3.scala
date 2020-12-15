@@ -15,7 +15,7 @@ trait Blas3 {
       output_shapes.head
     }
 
-    val kernel_lut =LUT[T](input_units, output_units)((kernel_array.flatten map { x => Bits(x.toUnchecked[T])}):_*)
+    val kernel_lut = LUT[T](input_units, output_units)((kernel_array.flatten map { x => Bits(x.toUnchecked[T])}):_*)
     val bias_LUT = LUT[T](bias_array.length)((bias_array map { x => Bits(x.toUnchecked[T])}):_*)
 
     new ReadableND[T] {

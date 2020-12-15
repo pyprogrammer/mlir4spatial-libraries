@@ -216,15 +216,12 @@ trait Materialization {
         new Coprocessor[Vec[I32], T] {
           override def coprocessorScope: CoprocessorScope = cps
 
-          override def enq(inputs: Vec[I32]): Unit = {
+          override def enq(inputs: Vec[I32], ens: Set[Bit]): Unit = {
             val stagedRegs = Range(0, dimensions) map {
               ind =>
-//                  val reg = Reg[I32]
-//                  reg := inputs(ind)
-//                  reg.value
                 inputs(ind)
             }
-            subInterface.enq(stagedRegs, Set(Bit(true)))
+            subInterface.enq(stagedRegs, ens)
           }
 
           override def deq(inputs: Vec[I32], ens: Set[Bit]): T = {

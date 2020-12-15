@@ -26,7 +26,7 @@ object debug_utils {
       case (value, index) =>
         val reg = Reg[T].dontTouch
         reg.explicitName = f"${name}_$index"
-        reg := value
+        reg.write(value, ens.toSeq:_*)
 
         {
           // For scala sim
@@ -60,56 +60,67 @@ class DumpScope(implicit state: argon.State) {
     strides.drop(1)
   }
 
+  case class SRAMDRAMPair[T: Num](sram: RegFile1[T], dram: DRAM1[T]) {
+    def transfer() = {
+      dram store sram
+    }
+  }
+  case class DumpBundle[T: Num](valid: SRAMDRAMPair[I32], request: SRAMDRAMPair[I32], values: SRAMDRAMPair[T])
+
   def dump[T: Num](name: String)(arg: types.ReadableND[T]): types.ReadableND[T] = {
 
-    val (validDram, dram, requestDram) = escape(scope_id) {
-      val escapeDram = DRAM[T](arg.size)
-      escapeDram.explicitName = f"dump_DRAM_$name"
-
-      val validDram = DRAM[I32](arg.size)
-
-      val requestDram = DRAM[I32](arg.size)
-      (validDram, escapeDram, requestDram)
-    }
-
-    // banking params
-    val N = arg.shape map {
-      _ match {
-        case argon.Const(x) => x.toInt
-        case _ => assert(false, "FUCK")
-          1
-      }
-    } reduce {_ * _}
-
-    println(s"Banking by $N: ${arg.shape}")
-
-    val intermediate = escape(sramScopeId) { SRAM[T](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1)) }
-    intermediate.explicitName = f"dump_SRAM_$name"
-
-    val accessSram = escape(sramScopeId) { SRAM[I32](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1)) }
-    accessSram.explicitName = f"dump_SRAM_valid_$name"
-
-    val requestSram = escape(sramScopeId) { SRAM[I32](arg.size).nonbuffer.forcebank(Seq(N), Seq(1), Seq(1)) }
-    requestSram.explicitName = f"dump_SRAM_rqst_$name"
+    val bundles = scala.collection.mutable.ListBuffer[DumpBundle[T]]()
 
     val strides = computeStrides(arg.shape)
 
-
     stores.append(() => {
-      dram store intermediate
-      validDram store accessSram
-      requestDram store requestSram
+      bundles foreach {
+        bundle =>
+          bundle.request.transfer()
+          bundle.valid.transfer()
+          bundle.values.transfer()
+      }
     })
 
     dumps.append(() => {
-      val mem = getMem(dram)
-      writeCSV1D(mem, f"${name}.csv", delim = ",")
+      val output = spatial.dsl.Array.empty[T](arg.size)
+      val outputValid = spatial.dsl.Array.empty[Bit](arg.size)
 
-      val valid = getMem(validDram)
-      writeCSV1D(valid, f"${name}_valid.csv", delim = ",")
+      Foreach(0 until arg.size) {
+        i => outputValid(i) = false
+      }
 
-      val requests = getMem(requestDram)
-      writeCSV1D(requests, f"${name}_rqst.csv", delim = ",")
+      bundles foreach {
+        bundle =>
+          // assert that for each request there was a response
+          val rqst = getMem(bundle.request.dram)
+          val valid = getMem(bundle.valid.dram)
+          val agreements = rqst.zip(valid) {_ === _}
+
+          {
+            import spatial.dsl._
+            Foreach(0 until arg.size) {
+              i =>
+                assert(agreements(i), r"Every Request must have a Response, mismatched at $name ${i} Rqst: ${rqst(i)}, Resp: ${valid(i)}")
+            }
+
+            val results = getMem(bundle.values.dram)
+            Foreach(0 until arg.size) {
+              i =>
+                ifThenElse(agreements(i), () => {
+                  ifThenElse(outputValid(i), () => {
+                    assert(abs(output(i) - results(i)) < (0.001).toUnchecked[T], r"Previously received ${output(i)}, now receiving ${results(i)} at $name ${i}")
+                  }, () => {
+                    output(i) = results(i)
+                    outputValid(i) = true
+                  })
+                }, () => {})
+            }
+          }
+      }
+
+      writeCSV1D(output, f"${name}.csv", delim = ",")
+      writeCSV1D(outputValid, f"${name}_valid.csv", delim = ",")
     })
 
     new types.ReadableND[T] {
@@ -117,18 +128,60 @@ class DumpScope(implicit state: argon.State) {
       override def getInterface: types.Interface[T] = {
         val subInterface = arg.getInterface
 
+        val (validDram, valueDram, requestDram) = escape(scope_id) {
+          val valueDram = DRAM[T](arg.size)
+          valueDram.explicitName = f"dump_DRAM_$name"
+
+          val validDram = DRAM[I32](arg.size)
+
+          val requestDram = DRAM[I32](arg.size)
+          (validDram, valueDram, requestDram)
+        }
+
+        val (validSram, valueSram, requestSram) = escape(sramScopeId) {
+
+          val zeros = arg.size match {
+            case argon.Const(v) => Some(Range(0, v.toInt) map {_ => I32(0)})
+            case _ => None
+          }
+
+          val intermediate: RegFile1[T] = RegFile[T](arg.size)
+          intermediate.explicitName = f"dump_SRAM_$name"
+
+          val accessSram: RegFile1[I32] = RegFile[I32](arg.size, zeros)
+          accessSram.explicitName = f"dump_SRAM_valid_$name"
+
+          val requestSram: RegFile1[I32] = RegFile[I32](arg.size, zeros)
+          requestSram.explicitName = f"dump_SRAM_rqst_$name"
+
+          (accessSram, intermediate, requestSram)
+        }
+        bundles.append(
+          DumpBundle(
+            SRAMDRAMPair(validSram, validDram),
+            SRAMDRAMPair(requestSram, requestDram),
+            SRAMDRAMPair(valueSram, valueDram)
+          )
+        )
+
         new types.Interface[T] {
           override def enq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): Void = {
             requestSram.write(1.to[I32], Seq(utils.computeIndex(index, strides)), ens)
             debug_utils.TagVector(s"dump_enq_$name", index, ens)
+            retimeGate()
             subInterface.enq(index, ens)
+            retimeGate()
           }
 
           override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = {
             val v = subInterface.deq(index, ens)
+            retimeGate()
+            val linearizedIndex = Seq(utils.computeIndex(index, strides))
             debug_utils.TagVector(s"dump_deq_$name", index, ens)
-            intermediate.write(v,Seq(utils.computeIndex(index, strides)), ens)
-            accessSram.write(1.to[I32],Seq(utils.computeIndex(index, strides)), ens)
+            debug_utils.TagVector(s"dump_value_$name", Seq(v), ens)
+            valueSram.write(v, linearizedIndex, ens)
+            validSram.write(1.to[I32], linearizedIndex, ens)
+            retimeGate()
             v
           }
         }

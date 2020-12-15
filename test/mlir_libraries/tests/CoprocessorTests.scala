@@ -10,7 +10,7 @@ class TestProcessor(scope: mlir_libraries.CoprocessorScope) extends mlir_librari
     inputs + I32(1)
   }
 
-  override def enq(input: dsl.I32): scala.Unit = {}
+  override def enq(input: dsl.I32, ens: Set[Bit]): scala.Unit = {}
 }
 
 @spatial class CoprocessorTests(threads: scala.Int, workers: scala.Int) extends SpatialTest {

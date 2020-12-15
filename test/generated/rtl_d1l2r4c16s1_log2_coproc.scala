@@ -92,11 +92,14 @@ import mlir_libraries.DumpScope
               'Dequeue.Pipe.Foreach(I32(iterations) by I32(1)) { i =>
                 output_sram(i) = result.deq(Seq(i, I32(0)), Set(Bit(true)))
               }
+              Parallel {
+                dumpScope.store
+              }
+              retimeGate()
               scope.kill()
             }
         }
         output_DRAM store output_sram
-        dumpScope.store
       }
     }
 
@@ -120,6 +123,7 @@ import mlir_libraries.DumpScope
 }
 
 class rtl_d1l2r4c16s1_log2_coproc_funroll1 extends rtl_d1l2r4c16s1_log2_coproc(1, 0, 1)
+class rtl_d1l2r4c16s1_log2_coproc_funroll1_copy extends rtl_d1l2r4c16s1_log2_coproc(1, 0, 1)
 class rtl_d1l2r4c16s1_log2_coproc_funroll2 extends rtl_d1l2r4c16s1_log2_coproc(2, 0, 1)
 class rtl_d1l2r4c16s1_log2_coproc_funroll4 extends rtl_d1l2r4c16s1_log2_coproc(4, 0, 1)
 

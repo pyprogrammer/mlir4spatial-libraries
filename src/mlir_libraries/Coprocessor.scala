@@ -85,8 +85,8 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
   type InT = In_T
   type OutT = Out_T
 
-  protected val INPUT_FIFO_DEPTH = 128
-  protected val OUTPUT_FIFO_DEPTH = 128
+  protected val INPUT_FIFO_DEPTH = 32
+  protected val OUTPUT_FIFO_DEPTH = 32
   protected val PREALLOC_CREDITS = OUTPUT_FIFO_DEPTH / 2
   protected val DELAYED_CREDITS = OUTPUT_FIFO_DEPTH - PREALLOC_CREDITS - 2
 
@@ -102,9 +102,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
   protected val credit_fifos = collection.mutable.Buffer[FIFO[I32]]()
 
   var frozen: Boolean = false
-
-//  // Override this for the core inner function.
-//  def execute(inputs: Seq[In_T]): Seq[Out_T]
 
   def enq(input: In_T, ens: Set[Bit]): Unit
 
@@ -141,42 +138,101 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     credits.nonbuffer
     credits.explicitName = s"CreditRegFile_${id}"
 
-    // now execute the actual kernel
-    'CoprocessorArbiter.Pipe.Foreach(*) {
-      iter => {
-        val priorityDeqEnableFIFOs = Range(0, numInterfaces) map {i =>
-          val v = Reg[Bit](false)
-          v.explicitName = s"PriorityDeqEnableFIFO_${id}_${i}"
-          v
-        }
-        'CoprocessorArbiterEnableCalcs.Pipe {
-          val creditIter = iter % I32(CREDIT_REPLICANTS)
-          Range(0, numInterfaces) foreach {
-            iid =>
-              priorityDeqEnableFIFOs(iid) := (credits(creditIter, I32(iid)) > I32(0))
+    if (Options.RoundRobin) {
+      // RoundRobin Scheduling:
+      // Make a priorityDeq of 2N-1 fifos, with an N length enable window.
+      // on each iteration shift this enable window by 1.
+      'CoprocessorArbiter.Pipe.Foreach(*) {
+        iter => {
+          val priorityDeqEnableFIFOs = (Range(0, numInterfaces) map { i =>
+            val v = Reg[Bit](false)
+            v.explicitName = s"PriorityDeqEnableFIFOPrimary_${id}_${i}"
+            v
+          }) ++ (Range(0, numInterfaces - 1) map {
+            i =>
+              val v = Reg[Bit](false)
+              v.explicitName = s"PriorityDeqEnableFIFOSecondary_${id}_${i}"
+              v
+          })
+          'CoprocessorArbiterEnableCalcs.Pipe {
+            val creditIter = iter % I32(CREDIT_REPLICANTS)
+            val hasCredits = Range(0, numInterfaces) map {
+              iid => credits(creditIter, I32(iid)) > I32(0)
+            }
+            val startEnable = iter % I32(numInterfaces)
+            val endEnable = startEnable + I32(numInterfaces)
+            Range(0, 2*numInterfaces-1) foreach {
+              pdqEnId =>
+                val iid = pdqEnId % numInterfaces
+                val maskEnable = (startEnable <= I32(pdqEnId)) && (I32(pdqEnId) < endEnable)
+                priorityDeqEnableFIFOs(pdqEnId) := hasCredits(iid) && maskEnable
+            }
           }
-        }
 
-        'CoprocessorArbiterSubEnqs.Pipe.II(1).haltIfStarved {
-          val allCreditFifos = credit_fifos ++ Seq(prealloc_fifo)
-          val creditIter = iter % I32(CREDIT_REPLICANTS)
-          val creditUpdate = priorityDeq(allCreditFifos: _*)
-          val priorityDeqEnables = priorityDeqEnableFIFOs map {
-            _.value
-          }
-          val isValid = priorityDeqEnables reduceTree { _||_ }
-          val nextTask: TaggedInput[In_T] = priorityDeq(input_fifos.toList, priorityDeqEnables.toList)
-          // update the appropriate credit reg
+          'CoprocessorArbiterSubEnqs.Pipe.II(1) {
+            val allCreditFifos = credit_fifos ++ Seq(prealloc_fifo)
+            val creditIter = iter % I32(CREDIT_REPLICANTS)
+            val creditUpdate = priorityDeq(allCreditFifos: _*)
+            val priorityDeqEnables = priorityDeqEnableFIFOs map {
+              _.value
+            }
+            val isValid = priorityDeqEnables reduceTree {
+              _ || _
+            }
+            val nextTask: TaggedInput[In_T] = priorityDeq((input_fifos ++ input_fifos.dropRight(1)).toList, priorityDeqEnables.toList)
+            // update the appropriate credit reg
 
-          Range(0, numInterfaces) foreach {
-            iid =>
-              val isNextTask = I32(iid) === nextTask.id
-              val receivedCredit = I32(iid) === creditUpdate
-              val update = receivedCredit.to[I32] - isNextTask.to[I32]
-              credits(creditIter, I32(iid)) = credits(creditIter, I32(iid)) + update
+            Range(0, numInterfaces) foreach {
+              iid =>
+                val isNextTask = I32(iid) === nextTask.id
+                val receivedCredit = I32(iid) === creditUpdate
+                val update = receivedCredit.to[I32] - isNextTask.to[I32]
+                credits(creditIter, I32(iid)) = credits(creditIter, I32(iid)) + update
+            }
+            central_input_fifo.enq(nextTask, isValid)
+            enq(nextTask.payload, Set(isValid))
           }
-          central_input_fifo.enq(nextTask, isValid)
-          enq(nextTask.payload, Set(isValid))
+        }
+      }
+    } else {
+      'CoprocessorArbiter.Pipe.Foreach(*) {
+        iter => {
+          val priorityDeqEnableFIFOs = Range(0, numInterfaces) map { i =>
+            val v = Reg[Bit](false)
+            v.explicitName = s"PriorityDeqEnableFIFO_${id}_${i}"
+            v
+          }
+          'CoprocessorArbiterEnableCalcs.Pipe {
+            val creditIter = iter % I32(CREDIT_REPLICANTS)
+            Range(0, numInterfaces) foreach {
+              iid =>
+                priorityDeqEnableFIFOs(iid) := (credits(creditIter, I32(iid)) > I32(0))
+            }
+          }
+
+          'CoprocessorArbiterSubEnqs.Pipe.II(1) {
+            val allCreditFifos = credit_fifos ++ Seq(prealloc_fifo)
+            val creditIter = iter % I32(CREDIT_REPLICANTS)
+            val creditUpdate = priorityDeq(allCreditFifos: _*)
+            val priorityDeqEnables = priorityDeqEnableFIFOs map {
+              _.value
+            }
+            val isValid = priorityDeqEnables reduceTree {
+              _ || _
+            }
+            val nextTask: TaggedInput[In_T] = priorityDeq(input_fifos.toList, priorityDeqEnables.toList)
+            // update the appropriate credit reg
+
+            Range(0, numInterfaces) foreach {
+              iid =>
+                val isNextTask = I32(iid) === nextTask.id
+                val receivedCredit = I32(iid) === creditUpdate
+                val update = receivedCredit.to[I32] - isNextTask.to[I32]
+                credits(creditIter, I32(iid)) = credits(creditIter, I32(iid)) + update
+            }
+            central_input_fifo.enq(nextTask, isValid)
+            enq(nextTask.payload, Set(isValid))
+          }
         }
       }
     }
@@ -189,18 +245,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
         flushFIFO.enq(blank)
     }
 
-//    'Coprocessor.Pipe.haltIfStarved.Foreach(*) {
-//        _ =>
-//          val outputInfo = priorityDeq(central_input_fifo, flushFIFO)
-//          val destination = outputInfo.id
-//          val valid = destination !== I32(-1)
-//          val results = deq(outputInfo.payload, Set(valid))
-//          output_fifos.zipWithIndex foreach {
-//            case (output_fifo, output_index) =>
-//              val write_enable = I32(output_index) === destination
-//              output_fifo.enq(results, write_enable)
-//          }
-//    }
     'Coprocessor.Pipe.Foreach(*) {
       _ =>
 
@@ -212,6 +256,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
           valid := (destination !== I32(-1))
         }
         Pipe {
+          // may contain a real fifo dequeue
           val results = deq(outputInfo.payload, Set(valid))
           output_fifos.zipWithIndex foreach {
             case (output_fifo, output_index) =>
@@ -221,8 +266,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
         }
     }
   }
-
-  // Process function takes an input read from a fifo and writes to the corresponding output fifo.
 
   class CoprocessorInterface(input_stream: FIFO[TaggedInput[In_T]], output_stream: FIFO[Out_T], credit_stream: FIFO[I32], id: Int) {
 

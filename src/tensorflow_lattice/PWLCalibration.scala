@@ -86,24 +86,42 @@ trait PWLCalibration {
 
             // Handles cases where the input is within the keypoints.
             // Still need to handle the cases where the input is less than the first keypoint or larger than the last keypoint.
-            val pwl = Pipe.Reduce(Reg[T])(iterations by 1 par I32(par_factor)) {
-              kp_index =>
-                val input_kp = input_kp_LUT(kp_index)
-                val next_kp = input_kp_LUT(kp_index + I32(1))
-                val scaled_diff = scaled_diffs_LUT(d1, kp_index)
-                val offset = value - input_kp
-                val is_valid = (input_kp < value) && (value <= next_kp)
-                val output = cumsum_LUT(d1, kp_index) + offset * scaled_diff
-                mux(is_valid, output, 0.to[T])
-            }{_ + _}
-            // Handle Edge Cases
-            val front_val = front_LUT(d1, I32(0))
-            val back_val = front_LUT(d1, I32(num_keypoints - 1))
-            val before_first = input_keypoints_array.head.toUnchecked[T] >= value
-            val after_last = input_keypoints_array.last.toUnchecked[T] <= value
-            val result = priorityMux(Seq[Bit](before_first, after_last, Bit(true)), Seq[T](front_val, back_val, pwl))
+            if (num_loops != 1) {
+              val pwl = Pipe.Reduce(Reg[T])(iterations by 1 par I32(par_factor)) {
+                kp_index =>
+                  val input_kp = input_kp_LUT(kp_index)
+                  val next_kp = input_kp_LUT(kp_index + I32(1))
+                  val scaled_diff = scaled_diffs_LUT(d1, kp_index)
+                  val offset = value - input_kp
+                  val is_valid = (input_kp < value) && (value <= next_kp)
+                  val output = cumsum_LUT(d1, kp_index) + offset * scaled_diff
+                  mux(is_valid, output, 0.to[T])
+              } {
+                _ + _
+              }
 
-            result
+              // Handle Edge Cases
+              val front_val = front_LUT(d1, I32(0))
+              val back_val = front_LUT(d1, I32(num_keypoints - 1))
+              val before_first = input_keypoints_array.head.toUnchecked[T] >= value
+              val after_last = input_keypoints_array.last.toUnchecked[T] <= value
+              priorityMux(Seq[Bit](before_first, after_last, Bit(true)), Seq[T](front_val, back_val, pwl))
+            } else {
+              val conditions = Seq(input_keypoints_array.head.toUnchecked[T] >= value) ++ (input_keypoints_array map {
+                x =>
+                  x.toUnchecked[T] < value
+              })
+              val intermediateInterpolants = Range(0, num_keypoints - 1) map {
+                kpIndex =>
+                  val input_kp = input_kp_LUT(I32(kpIndex))
+                  val scaled_diff = scaled_diffs_LUT(d1, I32(kpIndex))
+                  val offset = value - input_kp
+                  cumsum_LUT(d1, I32(kpIndex)) + offset * scaled_diff
+              }
+              val interpolated = Seq(front_LUT(d1, I32(0))) ++ intermediateInterpolants ++ Seq(front_LUT(d1, I32(num_keypoints - 1)))
+              assert(conditions.length == interpolated.length, s"Found ${conditions.length} conditions and ${interpolated.length} interpolation results!")
+              priorityMux(conditions.reverse, interpolated.reverse)
+            }
           }
         }
       }

@@ -147,7 +147,7 @@ trait Lattice {
               result
             }
             val v = recursive_fill(scala.Seq.empty[ParameterIndex], argon.uconst[ParameterIndex](0))
-            mlir_libraries.debug_utils.TagVector("LatticeOutput", Seq(v))
+            mlir_libraries.debug_utils.TagVector("LatticeOutput", Seq(v), ens)
             v
           }
         }

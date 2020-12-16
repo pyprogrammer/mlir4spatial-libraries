@@ -103,11 +103,6 @@ trait PWLCalibration {
             val after_last = input_keypoints_array.last.toUnchecked[T] <= value
             val result = priorityMux(Seq[Bit](before_first, after_last, Bit(true)), Seq[T](front_val, back_val, pwl))
 
-            {
-              import spatial.dsl._
-              printIf(ens, r"Input: $value, before_first: $before_first -> $front_val, after_last: $after_last -> $back_val, pwl: $pwl, result: $result" ++ argon.lang.Text("\n"))
-            }
-
             result
           }
         }

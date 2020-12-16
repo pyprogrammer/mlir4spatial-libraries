@@ -68,12 +68,16 @@ class DumpScope(implicit state: argon.State) {
   case class DumpBundle[T: Num](valid: SRAMDRAMPair[I32], request: SRAMDRAMPair[I32], values: SRAMDRAMPair[T])
 
   def dump[T: Num](name: String)(arg: types.ReadableND[T]): types.ReadableND[T] = {
+    if (!Options.Debug) {
+      return arg
+    }
 
     val bundles = scala.collection.mutable.ListBuffer[DumpBundle[T]]()
 
     val strides = computeStrides(arg.shape)
 
     stores.append(() => {
+      println(s"Storing: ${bundles.mkString(", ")}")
       bundles foreach {
         bundle =>
           bundle.request.transfer()
@@ -83,6 +87,7 @@ class DumpScope(implicit state: argon.State) {
     })
 
     dumps.append(() => {
+      println(s"Dumping: ${bundles.mkString(", ")}")
       val output = spatial.dsl.Array.empty[T](arg.size)
       val outputValid = spatial.dsl.Array.empty[Bit](arg.size)
 
@@ -95,19 +100,19 @@ class DumpScope(implicit state: argon.State) {
           // assert that for each request there was a response
           val rqst = getMem(bundle.request.dram)
           val valid = getMem(bundle.valid.dram)
-          val agreements = rqst.zip(valid) {_ === _}
+          val filled = rqst.zip(valid) { case (a, b) => (a !== I32(0)) && (b !== I32(0))}
 
           {
             import spatial.dsl._
             Foreach(0 until arg.size) {
               i =>
-                assert(agreements(i), r"Every Request must have a Response, mismatched at $name ${i} Rqst: ${rqst(i)}, Resp: ${valid(i)}")
+                assert(rqst(i) === valid(i), r"Every Request must have a Response, mismatched at $name ${i} Rqst: ${rqst(i)}, Resp: ${valid(i)}")
             }
 
             val results = getMem(bundle.values.dram)
             Foreach(0 until arg.size) {
               i =>
-                ifThenElse(agreements(i), () => {
+                ifThenElse(filled(i), () => {
                   ifThenElse(outputValid(i), () => {
                     assert(abs(output(i) - results(i)) < (0.001).toUnchecked[T], r"Previously received ${output(i)}, now receiving ${results(i)} at $name ${i}")
                   }, () => {
@@ -168,20 +173,16 @@ class DumpScope(implicit state: argon.State) {
           override def enq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): Void = {
             requestSram.write(1.to[I32], Seq(utils.computeIndex(index, strides)), ens)
             debug_utils.TagVector(s"dump_enq_$name", index, ens)
-            retimeGate()
             subInterface.enq(index, ens)
-            retimeGate()
           }
 
           override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = {
             val v = subInterface.deq(index, ens)
-            retimeGate()
             val linearizedIndex = Seq(utils.computeIndex(index, strides))
             debug_utils.TagVector(s"dump_deq_$name", index, ens)
             debug_utils.TagVector(s"dump_value_$name", Seq(v), ens)
             valueSram.write(v, linearizedIndex, ens)
             validSram.write(1.to[I32], linearizedIndex, ens)
-            retimeGate()
             v
           }
         }
@@ -191,18 +192,15 @@ class DumpScope(implicit state: argon.State) {
     }
   }
 
-  def store: Unit = {
+  def store(): Unit = {
     println(s"Stores: $stores")
-    escape(sramScopeId) {
-      stores foreach { x => x() }
-    }
+    stores foreach { x => x() }
   }
 
-  def dump = {
+  def dump() = {
     println(s"Dumps: $dumps")
-    escape(scope_id) {
-      dumps foreach { x => x() }
-    }
+    dumps foreach { x => x() }
+
   }
 
   def setSramScope = {

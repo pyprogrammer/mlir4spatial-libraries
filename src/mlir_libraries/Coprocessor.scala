@@ -225,8 +225,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
   // Process function takes an input read from a fifo and writes to the corresponding output fifo.
 
   class CoprocessorInterface(input_stream: FIFO[TaggedInput[In_T]], output_stream: FIFO[Out_T], credit_stream: FIFO[I32], id: Int) {
-    var enqueued = false
-    var dequeued = false
 
     def enq(input: In_T, en: Bit = Bit(true)): Void = {
       val bundle = TaggedInput[In_T](I32(id), input)

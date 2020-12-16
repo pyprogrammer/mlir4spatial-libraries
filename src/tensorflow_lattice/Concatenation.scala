@@ -120,12 +120,14 @@ trait Concatenation {
             mlir_libraries.debug_utils.TagVector("ConcatenationInput", index, ens)
             val pruned_enables = prune_args(index, ens)
             mlir_libraries.debug_utils.TagVector("ConcatenationEnables", pruned_enables map {_._1}, ens)
+
             val reads = (pruned_enables zip interfaces) map {
               case ((en, ind), interface) =>
                 val sub_index = get_new_index(index, ind)
                 mlir_libraries.debug_utils.TagVector("ConcatenateSubIndex", sub_index, ens + en)
                 interface.deq(sub_index, ens + en)
             }
+
             val v = priorityMux(pruned_enables map {
               _._1
             }, reads)

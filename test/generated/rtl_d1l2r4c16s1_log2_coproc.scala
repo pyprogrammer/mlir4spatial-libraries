@@ -93,7 +93,7 @@ import mlir_libraries.DumpScope
                 output_sram(i) = result.deq(Seq(i, I32(0)), Set(Bit(true)))
               }
               Parallel {
-                dumpScope.store
+                dumpScope.store()
               }
               retimeGate()
               scope.kill()
@@ -103,7 +103,7 @@ import mlir_libraries.DumpScope
       }
     }
 
-    dumpScope.dump
+    dumpScope.dump()
 
     if (mlir_libraries.Options.Verify) {
       val golden = loadCSV1D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/output.csv", ",")

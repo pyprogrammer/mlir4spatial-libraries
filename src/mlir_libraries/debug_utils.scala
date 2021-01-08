@@ -95,8 +95,8 @@ class DumpScope(implicit state: argon.State) {
         i => outputValid(i) = false
       }
 
-      bundles foreach {
-        bundle =>
+      bundles.zipWithIndex foreach {
+        case (bundle, ind) =>
           // assert that for each request there was a response
           val rqst = getMem(bundle.request.dram)
           val valid = getMem(bundle.valid.dram)
@@ -122,6 +122,9 @@ class DumpScope(implicit state: argon.State) {
                 }, () => {})
             }
           }
+
+          writeCSV1D(rqst, f"${name}_rqst_$ind.csv", delim = ",")
+          writeCSV1D(valid, f"${name}_valid_$ind.csv", delim = ",")
       }
 
       writeCSV1D(output, f"${name}.csv", delim = ",")

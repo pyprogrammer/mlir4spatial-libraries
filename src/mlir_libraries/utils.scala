@@ -32,22 +32,6 @@ object utils {
     reg := 1.to[Bit]
   }
 
-  def save_value[T: Bits](name: String, value: T)(implicit state: argon.State, srcCtx: SrcCtx): Void = {
-    val saver = Reg[T](Bits[T].zero, name).dontTouch
-    saver := value
-    new Void
-  }
-
-  def MaybeRead[T: argon.Type](fifo: FIFO[T], reg: Reg[T])(implicit state: argon.State, srcCtx: SrcCtx) = {
-    ifThenElse(
-      fifo.isEmpty,
-      () => {},
-      () => {
-        reg := fifo.deq()
-      }
-    )
-  }
-
   def ComputeStrides(dimensions: IndexedSeq[Int]): IndexedSeq[Int] = {
     val strides: scala.Array[Int] = scala.Array.fill(dimensions.length) {
       1

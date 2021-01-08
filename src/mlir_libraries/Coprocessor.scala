@@ -138,8 +138,8 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     credits.nonbuffer
     credits.explicitName = s"CreditRegFile_${id}"
 
-//    implicit val ev: Bits[Vec[Bit]]  = coprocessorScope.escape { Vec.fromSeq(Range(0, numInterfaces) map { _ => Bit(false) }) }
-//    val deqEnableFIFO = FIFO[Vec[Bit]](I32(CREDIT_REPLICANTS))
+    implicit val ev: Bits[Vec[Bit]] = Vec.fromSeq(Range(0, numInterfaces) map { _ => Bit(false) })
+    val deqEnableFIFO = FIFO[Vec[Bit]](I32(CREDIT_REPLICANTS))
 
     'CoprocessorArbiter.Pipe.Foreach(*) {
       iter => {

@@ -58,4 +58,21 @@ object utils {
         }
     }
   }
+
+  // Takes a list of FIFOs, and produces an output FIFO which yields elements from those fifos.
+  // Produces a func which yields an element from one of those fifos.
+//  def mergeChain[T:Bits](fifos: Seq[FIFO[T]], enFIFO: Option[FIFO[Vec[Bit]]], numFIFOsPerStage: Int = 4)(implicit state: argon.State, srcCtx: SrcCtx): Unit => T = {
+//    if (fifos.size <= numFIFOsPerStage) {
+//      val outputFIFO = FIFO[T](I32(4))
+//      Pipe.Foreach(*) {
+//        _ =>
+//          enFIFO match {
+//            case Some(enf) =>
+//              assert(fifos.size == enf.A.nbits)
+//              val enable = enf.deq
+//
+//          }
+//      }
+//    }
+//  }
 }

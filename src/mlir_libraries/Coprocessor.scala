@@ -141,20 +141,12 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     implicit val ev: Bits[Vec[Bit]] = Vec.fromSeq(Range(0, numInterfaces) map { _ => Bit(false) })
     val deqEnableFIFO = FIFO[Vec[Bit]](I32(CREDIT_REPLICANTS))
 
-    'CoprocessorArbiter.Pipe.Foreach(*) {
+    'CoprocessorArbiterEnableCalcs.Pipe.Foreach(*) {
       iter => {
-        val priorityDeqEnableFIFOs = Range(0, numInterfaces) map { i =>
-          val v = Reg[Bit](false)
-          v.explicitName = s"PriorityDeqEnableFIFO_${id}_${i}"
-          v
-        }
-        'CoprocessorArbiterEnableCalcs.Pipe {
-          val creditIter = iter % I32(CREDIT_REPLICANTS)
-          Range(0, numInterfaces) foreach {
-            iid =>
-              priorityDeqEnableFIFOs(iid) := (credits(creditIter, I32(iid)) > I32(0))
-          }
-        }
+        val creditIter = iter % I32(CREDIT_REPLICANTS)
+        deqEnableFIFO.enq(Vec.fromSeq(Range(0, numInterfaces) map {iid => credits(creditIter, I32(iid)) > I32(0)}))
+      }
+    }
 
         'CoprocessorArbiterSubEnqs.Pipe.II(1) {
           val allCreditFifos = credit_fifos ++ Seq(prealloc_fifo)

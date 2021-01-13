@@ -12,6 +12,4 @@ object Options {
 
   val Debug: Boolean = getOption("Debug", false)
   val Verify: Boolean = getOption(str = "Verify", false)
-
-  val RoundRobin: Boolean = getOption("RoundRobin", false)
 }

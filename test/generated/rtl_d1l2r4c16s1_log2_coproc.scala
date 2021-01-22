@@ -4,11 +4,12 @@ import mlir_libraries.types.TypeImplicits._
 import mlir_libraries.DumpScope
 @spatial class rtl_d1l2r4c16s1_log2_coproc(run_iterations: Int, lattice_loops: Int, pwl_iterations: Int) extends SpatialTest {
 
-  override def compileArgs = "--max_cycles=40000 --vv"
+  override def compileArgs = s"--max_cycles=${run_iterations * 1000 + 1000} --vv"
 
   import spatial.dsl._
   type T = FixPt[TRUE, _9, _23]
   val iterations = run_iterations
+  val offset = I32(0)
   implicit val cfg = mlir_libraries.OptimizationConfig(lattice_loops = lattice_loops, pwl_iterations = pwl_iterations)
   def main(args: Array[String]) : Unit = {
     val dram_0 = DRAM[T](I32(iterations), I32(1))
@@ -22,31 +23,31 @@ import mlir_libraries.DumpScope
     val dram_8 = DRAM[T](I32(iterations), I32(1))
 
     val input_0 = loadCSV2D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/input_0.csv")
-    val sliced_input_0 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_0(row, col)}
+    val sliced_input_0 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_0(row + offset, col)}
     setMem(dram_0, sliced_input_0)
     val input_1 = loadCSV2D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/input_1.csv")
-    val sliced_input_1 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_1(row, col)}
+    val sliced_input_1 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_1(row + offset, col)}
     setMem(dram_1, sliced_input_1)
     val input_2 = loadCSV2D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/input_2.csv")
-    val sliced_input_2 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_2(row, col)}
+    val sliced_input_2 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_2(row + offset, col)}
     setMem(dram_2, sliced_input_2)
     val input_3 = loadCSV2D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/input_3.csv")
-    val sliced_input_3 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_3(row, col)}
+    val sliced_input_3 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_3(row + offset, col)}
     setMem(dram_3, sliced_input_3)
     val input_4 = loadCSV2D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/input_4.csv")
-    val sliced_input_4 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_4(row, col)}
+    val sliced_input_4 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_4(row + offset, col)}
     setMem(dram_4, sliced_input_4)
     val input_5 = loadCSV2D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/input_5.csv")
-    val sliced_input_5 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_5(row, col)}
+    val sliced_input_5 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_5(row + offset, col)}
     setMem(dram_5, sliced_input_5)
     val input_6 = loadCSV2D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/input_6.csv")
-    val sliced_input_6 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_6(row, col)}
+    val sliced_input_6 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_6(row + offset, col)}
     setMem(dram_6, sliced_input_6)
     val input_7 = loadCSV2D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/input_7.csv")
-    val sliced_input_7 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_7(row, col)}
+    val sliced_input_7 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_7(row + offset, col)}
     setMem(dram_7, sliced_input_7)
     val input_8 = loadCSV2D[T]("/local/ssd/home/stanfurd/local-remote-deploy/mlir4spatial-libraries/test/generated/log2d1/input_8.csv")
-    val sliced_input_8 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_8(row, col)}
+    val sliced_input_8 = Matrix.tabulate(I32(iterations), I32(1)) {case (row, col) => input_8(row + offset, col)}
     setMem(dram_8, sliced_input_8)
 
     val output_DRAM = DRAM[T](I32(iterations))
@@ -111,9 +112,10 @@ import mlir_libraries.DumpScope
         val received = getMem(output_DRAM)
 
         Foreach(I32(iterations) by I32(1)) {
-          iter =>
+          i =>
+            val iter = i + offset
             val gold = golden(iter)
-            val rec = received(iter)
+            val rec = received(i)
             val diff = abs(gold - rec)
             assert(diff < 0.001.toUnchecked[T], r"$diff > 0.001 at iteration $iter. Expected: $gold, received: $rec")
         }

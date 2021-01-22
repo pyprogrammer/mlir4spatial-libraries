@@ -85,12 +85,12 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
   type InT = In_T
   type OutT = Out_T
 
-  protected val INPUT_FIFO_DEPTH = 32
+  private val CREDIT_REPLICANTS = 16
+
+  protected val INPUT_FIFO_DEPTH = 16
   protected val OUTPUT_FIFO_DEPTH = 32
   protected val PREALLOC_CREDITS = OUTPUT_FIFO_DEPTH / 2
   protected val DELAYED_CREDITS = OUTPUT_FIFO_DEPTH - PREALLOC_CREDITS - 2
-
-  private val CREDIT_REPLICANTS = 16
 
   protected val id = getId
 
@@ -121,17 +121,18 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     assert(credit_fifos.size == numInterfaces, s"Expected $numInterfaces fifos, got ${credit_fifos.size}")
 
     val central_input_fifo = FIFO[TaggedInput[In_T]](I32(INPUT_FIFO_DEPTH))
-    central_input_fifo.explicitName = s"CentralInputFifo${id}"
+    central_input_fifo.explicitName = s"CentralInputFifo_${id}"
 
     // Continuously pump this fifo full to keep arbiter running
     val prealloc_fifo = FIFO[I32](I32(4))
+    prealloc_fifo.explicitName = s"PreallocFifo_${id}"
 
-    // This is so that it can start running.
-    'CoprocessorBusyStuffing.Pipe.Foreach(DELAYED_CREDITS by 1) {
-      _ =>
-        Foreach(input_fifos.size by 1) {
-          ind => prealloc_fifo.enq(ind)
-        }
+    // This is so that it can start running (and keep running)
+    'CoprocessorPreallocCredits.Pipe.Foreach(*) {
+      iter =>
+        val ind = iter % I32(numInterfaces)
+        val shouldEnqRealCredit = iter < I32(numInterfaces * DELAYED_CREDITS)
+        prealloc_fifo.enq(mux(shouldEnqRealCredit, ind, I32(-1)))
     }
 
     val credits = RegFile[I32](I32(CREDIT_REPLICANTS), I32(numInterfaces), Range(0, CREDIT_REPLICANTS * numInterfaces) map {_ => I32(PREALLOC_CREDITS / CREDIT_REPLICANTS)})
@@ -139,7 +140,8 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     credits.explicitName = s"CreditRegFile_${id}"
 
     implicit val ev: Bits[Vec[Bit]] = Vec.fromSeq(Range(0, numInterfaces) map { _ => Bit(false) })
-    val deqEnableFIFO = FIFO[Vec[Bit]](I32(CREDIT_REPLICANTS))
+    val deqEnableFIFO = FIFO[Vec[Bit]](I32(CREDIT_REPLICANTS/2))
+    deqEnableFIFO.explicitName = s"DeqEnableFifo_${id}"
 
     'CoprocessorArbiterEnableCalcs.Pipe.Foreach(*) {
       iter => {

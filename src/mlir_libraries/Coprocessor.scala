@@ -49,10 +49,6 @@ object CoprocessorScope {
           val scope = new CoprocessorScope(coprocScopeId, setupScopeId, Some(kill))
           val initialized = init(scope)
           func(scope, initialized)
-//          Pipe {
-//            func(initialized)
-//            kill := 1.to[Bit]
-//          }
           scope.instantiate()
       }
     } else {
@@ -169,7 +165,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
           iid =>
             val isNextTask = I32(iid) === nextTask.id
             val receivedCredit = I32(iid) === creditUpdate
-//            val update = receivedCredit.to[I32] - isNextTask.to[I32]
             val update = mux(receivedCredit, I32(1), I32(0)) - mux(isNextTask, I32(1), I32(0))
             credits(creditIter, I32(iid)) = credits(creditIter, I32(iid)) + update
         }

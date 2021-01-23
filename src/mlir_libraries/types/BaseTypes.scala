@@ -8,12 +8,12 @@ trait Shaped {
   def size(implicit state: argon.State): spatial.dsl.I32 = shape reduce {_ * _}
 }
 
-trait Interface[T] {
-
-  // Deq must be in same order as Enq. Deq having this interface is simply for 0-cost abstractions.
-  def enq(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]): argon.lang.Void
-  def deq(index: Seq[spatial.dsl.I32], ens:Set[spatial.dsl.Bit]): T
+trait FunctionLike[InT, OutT] {
+  def enq(input: InT, ens: Set[spatial.dsl.Bit]): argon.lang.Void
+  def deq(input: InT, ens: Set[spatial.dsl.Bit]): OutT
 }
+
+trait Interface[T] extends FunctionLike[Seq[spatial.dsl.I32], T]
 
 trait ReadableND[T] extends Shaped {
   def getInterface: Interface[T]

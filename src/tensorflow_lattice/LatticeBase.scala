@@ -4,8 +4,13 @@ import mlir_libraries.utils.checkpoint
 import spatial.libdsl._
 import mlir_libraries.{Coprocessor, CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
 import _root_.spatial.libdsl
+import _root_.spatial.metadata.memory._
+import _root_.spatial.node.ForeverNew
+import argon.stage
 
 trait LatticeBase {
+
+  def permissible: Boolean = true
 
   val shape: MLTensor[Int]
   val lattice_kernel: MLTensor[Double]
@@ -30,6 +35,8 @@ trait LatticeBase {
 }
 
 trait FullyUnrolledLattice extends LatticeBase {
+  override def permissible: Boolean = config.lattice_loops == 0
+
   override def apply[T: libdsl.Num](arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: CoprocessorScope): ReadableND[T] = {
 
     type ResidualType = T
@@ -148,7 +155,7 @@ trait ReduceBasedLattice extends LatticeBase {
 
     new ReadableND[T] {
       override def getInterface: Interface[T] = {
-        val interfaces = Range(0, parallel_dimensions) map {
+        val interfaces = Range(0, dimensions) map {
           _ => expanded_arg.getInterface
         }
 
@@ -157,7 +164,7 @@ trait ReduceBasedLattice extends LatticeBase {
             val batch = index(index.length - 2)
             val unit = index.last
             Range(0, dimensions) foreach {
-              dim => interfaces(dim % parallel_dimensions).enq(Seq(batch, unit, I32(dim)), ens)
+              dim => interfaces(dim).enq(Seq(batch, unit, I32(dim)), ens)
             }
           }
 
@@ -168,7 +175,7 @@ trait ReduceBasedLattice extends LatticeBase {
 
             val intermediate_values = Range(0, dimensions) map {
               dim =>
-                interfaces(dim % parallel_dimensions).deq(Seq(batch, unit, I32(dim)), ens)
+                interfaces(dim).deq(Seq(batch, unit, I32(dim)), ens)
             }
 
             val sramReads = intermediate_values
@@ -254,6 +261,210 @@ trait ReduceBasedLattice extends LatticeBase {
             val v = recursive_fill(scala.Seq.empty[ParameterIndex], argon.uconst[ParameterIndex](0))
             mlir_libraries.debug_utils.TagVector("LatticeOutput", Seq(v), ens)
             v
+          }
+        }
+      }
+
+      // A lattice goes from (batch, dim, unit) -> (batch, unit)
+      lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
+    }
+  }
+}
+
+trait StreamReduceLattice extends LatticeBase {
+  override def permissible: Boolean = mlir_libraries.Options.Coproc
+
+  val FIFODepth = 32
+
+  override def apply[T: libdsl.Num](arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: CoprocessorScope): ReadableND[T] = {
+
+    type ResidualType = T
+    type AccumResidualType = T
+    type ParameterIndex = I32
+    type OutputType = T
+
+    val expanded_arg = if (arg.shape.length == 3) {
+      arg
+    } else {
+      tf.expand_dims(axis = 1)(arg)
+    }
+    assert(expanded_arg.shape.length == 3, "Expanded arg should have rank 3")
+
+    val param_list = lattice_kernel.flatten.map { x => Bits(x.toUnchecked[T]) }
+
+    new ReadableND[T] {
+      override def getInterface: Interface[T] = {
+        val interfaces = Range(0, dimensions) map {
+          _ => expanded_arg.getInterface
+        }
+
+        val indexFIFO = coprocessorScope.escape {
+          implicit val ev: Bits[Vec[I32]] = Vec.fromSeq(arg.shape.indices map { _ => I32(0) })
+          val tmp = FIFO[Vec[I32]](I32(FIFODepth))
+          tmp.explicitName = "IndexFIFO"
+          tmp
+        }
+
+        val valueFIFO = coprocessorScope.escape {
+          implicit val ev: Bits[Vec[T]] = Vec.fromSeq(Range(0, dimensions) map { _ => 0.to[T] })
+          val tmp = FIFO[Vec[T]](I32(FIFODepth))
+          tmp.explicitName = "ValueFIFO"
+          tmp
+        }
+        val unitFIFO = coprocessorScope.escape {
+          val tmp = FIFO[I32](I32(FIFODepth))
+          tmp.explicitName = "UnitFIFO"
+          tmp
+        }
+
+        coprocessorScope.setup {
+          'LatticeFetch.Pipe.Foreach(*) {
+            i =>
+              val index = indexFIFO.deq()
+              val batch = index(index.width - 2)
+              val unit = index(index.width - 1)
+
+              val values = Range(0, dimensions) map {
+                dim => interfaces(dim).deq(Seq(batch, unit, I32(dim)), Set(Bit(true)))
+              }
+
+              valueFIFO.enq(Vec.fromSeq(values))
+              unitFIFO.enq(unit)
+          }
+        }
+
+        val intermediateResultFIFO = coprocessorScope.escape {
+          val tmp = FIFO[T](I32(FIFODepth))
+          tmp.explicitName = "IntermediateFIFO"
+          tmp
+        }
+
+        coprocessorScope.setup {
+          // first iteration we predicate the reads from values, otherwise we don't
+          val valueRegisters = RegFile[T](I32(2), I32(dimensions))
+          val unitRegister = RegFile[I32](I32(2))
+
+          // Compute Counter Chain
+          val counters = Seq(stage(ForeverNew())) ++ Seq.fill(num_loop_dimensions) {Counter.from(I32(2) by I32(1))}
+          val params = LUT[OutputType](lattice_kernel.shape.head, units)(param_list: _*)
+
+          'LatticeCompute.Pipe.II(1).Foreach(counters) {
+            iter =>
+              val i = iter.head
+              val index = iter.tail
+              // are we on a fresh iteration?
+              val shouldTrigger = spatial.dsl.ForcedLatency(0.0) { index.map {x => x === I32(0)}.reduceTree {_ & _} }
+              val deqValues = stage(spatial.node.FIFODeq(valueFIFO, Set(shouldTrigger))(valueFIFO.A))
+              val unitValue = stage(spatial.node.FIFODeq(unitFIFO, Set(shouldTrigger)))
+
+              // Bounce between two copies of the value registers
+              val iterParity = i & I32(1)
+              // Perform write into regfile
+              Range(0, dimensions) foreach {
+                dim =>
+                  stage(spatial.node.RegFileWrite(valueRegisters, deqValues(I32(dim)), Seq(iterParity, I32(dim)), Set(shouldTrigger)))
+              }
+              stage(spatial.node.RegFileWrite(unitRegister, unitValue, Seq(iterParity), Set(shouldTrigger)))
+
+              val values = Range(0, dimensions) map {
+                dim => mux(shouldTrigger, deqValues(dim), valueRegisters(iterParity, I32(dim)))
+              }
+
+              val unit = mux(shouldTrigger, unitValue, unitRegister(iterParity))
+
+              // compute one stage of the result, and then enqueue it. Someone else can handle the reduce.
+              val remainingInputs = Range(num_loop_dimensions, dimensions) map {
+                dim => values(dim)
+              }
+
+              val parallelResidualPairs = remainingInputs map {
+                value =>
+                  val floored = floor(value).to[AccumResidualType]
+                  val diff = value - floored
+                  scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
+              }
+
+              // compute the base vector for indexing the parameter space.
+              val base_vec = values.zipWithIndex map {
+                case (inpt, dim) =>
+                  (lattice_shape(dim), mlir_libraries.Options.PO2Opt) match {
+                    case (2, true) =>
+                      0.to[ParameterIndex]
+                    case (shape, _) =>
+                      min(inpt.to[ParameterIndex], I32(shape - 2))
+                  }
+              }
+
+              // Components of base index from input
+              val base_index_components = (base_vec zip strides) map {
+                case (b, s) => b * s.to[ParameterIndex]
+              }
+              // components of base index from bumping
+              val bump_components = (index zip strides) map {
+                case (i, s) => i * s.to[ParameterIndex]
+              }
+
+              val base_index = (base_index_components ++ bump_components) reduceTree {_ + _}
+
+              val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(parallelResidualPairs: _*)(_ * _)
+
+              // Get flat index for each (corner + origin)
+              val indices: Seq[ParameterIndex] = corners map {
+                corner =>
+                  val offset = ((corner zip parallel_strides) map {
+                    case (cc, stride) =>
+                      cc * stride
+                  }).sum.to[ParameterIndex]
+                  base_index + offset
+              }
+
+              // Get weighted sum
+              val intermediateResult = hypervolumes.map(_.to[OutputType]).zip(indices).map {
+                case (hv, i) =>
+                  hv * params(i, unit)
+              }.reduceTree {
+                _ + _
+              }
+
+              // Compute weight of intermediate result
+              val weight = (index zip values) map {
+                case (ind, value) =>
+                  mux(ind === I32(0), floor(value + 1.to[T]) - value, value - floor(value))
+              } reduceTree {_ * _}
+
+              intermediateResultFIFO.enq(intermediateResult * weight)
+          }
+        }
+
+        val outputFIFO = coprocessorScope.escape {
+          val tmp = FIFO[T](I32(FIFODepth))
+          tmp.explicitName = "LatticeOutputFIFO"
+          tmp
+        }
+
+        coprocessorScope.setup {
+          Foreach(*) {
+            _ =>
+              val reg = Reg[T]
+              Reduce(reg)((1 << num_loop_dimensions) by 1) {
+                _ => intermediateResultFIFO.deq
+              } { _ + _ }
+              outputFIFO.enq(reg)
+          }
+        }
+
+        new Interface[T] {
+          override def enq(index: Seq[I32], ens: Set[Bit]): Void = {
+            val batch = index(index.length - 2)
+            val unit = index.last
+            Range(0, dimensions) foreach {
+              dim => interfaces(dim).enq(Seq(batch, unit, I32(dim)), ens)
+            }
+            indexFIFO.enq(Vec.fromSeq(index), ens.toSeq.reduceTree {_ && _})
+          }
+
+          override def deq(index: Seq[I32], ens: Set[Bit]): T = {
+            stage(spatial.node.FIFODeq(outputFIFO,ens))
           }
         }
       }

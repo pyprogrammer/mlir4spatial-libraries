@@ -5,7 +5,7 @@ import mlir_libraries.types.TypeImplicits._
 import mlir_libraries.{CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
 
 object LatticeTest {
-  val iterations = 20
+  val iterations = 1
   val kernel_values = scala.Array(0.0110625 , 0.02584553, 0.07165873, 0.26998997, 0.06218195,
     0.1307857 , 0.29879928, 0.35565615, 0.07956052, 0.15393174,
     0.3418517 , 0.75207484, 0.08045971, 0.57496   , 0.8091949 ,
@@ -84,15 +84,18 @@ object LatticeTest {
       } {
         case (scope, lattice) =>
           val interface = lattice.getInterface
-          Pipe {
-            Pipe.Foreach(iterations by 1) { i =>
-              interface.enq(Seq(i, I32(0)), Set(Bit(true)))
-              output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
-            }
-            scope.kill()
+          Foreach(iterations by 1) {
+            i => interface.enq(Seq(i, I32(0)), Set(Bit(true)))
           }
 
-          output_DRAM store output_sram
+          Sequential {
+            Foreach(iterations by 1) {
+              i => output_sram(i) = interface.deq(Seq(i, I32(0)), Set(Bit(true)))
+            }
+            output_DRAM store output_sram
+            retimeGate()
+            scope.kill()
+          }
       }
     }
     val golden = Array[T]((LatticeTest.golden map { argon.uconst[T](_) }):_*)
@@ -101,13 +104,15 @@ object LatticeTest {
     (0 until iterations) foreach {
       i =>
         val diff = abs(golden(i) - output(i))
-        assert(diff < 1e-3, r"Expected (${golden(i)}), got (${output(i)}) < 1e-3")
+        assert(diff < 1e-3, r"Error at $i: Expected (${golden(i)}), got (${output(i)}) < 1e-3")
     }
   }
 }
 
 class LatticeTestL0 extends LatticeTest(0)
 class LatticeTestL1 extends LatticeTest(1)
+class LatticeTestL1cp extends LatticeTest(1)
+class LatticeTestL1cp2 extends LatticeTest(1)
 class LatticeTestL2 extends LatticeTest(2)
 class LatticeTestL3 extends LatticeTest(3)
 class LatticeTestL4 extends LatticeTest(4)

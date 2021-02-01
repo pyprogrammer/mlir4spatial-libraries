@@ -31,6 +31,8 @@ class CoprocessorScope(val coprocessorScopeId: argon.BundleHandle, val setupScop
 
   def escape[T](thunk: => T): T = escapeToScope(coprocessorScopeId, thunk)
 
+  def setup[T](thunk: => T): T = escapeToScope(setupScopeId, thunk)
+
   def kill(): Void = killReg match {
     case Some(reg) => reg := 1.to[Bit]
     case None => new Void
@@ -40,12 +42,12 @@ class CoprocessorScope(val coprocessorScopeId: argon.BundleHandle, val setupScop
 
 object CoprocessorScope {
   def apply[T](init: CoprocessorScope => T)(func: (CoprocessorScope, T) => Any)(implicit state: argon.State): Void = {
-    val setupScopeId = state.GetCurrentHandle()
     val coprocScopeId = state.GetCurrentHandle()
     if (Options.Coproc) {
       val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill").dontTouch
       'CoprocessorScope.Stream(breakWhen = kill)(implicitly, implicitly) {
           // Stage into current scope
+          val setupScopeId = state.GetCurrentHandle()
           val scope = new CoprocessorScope(coprocScopeId, setupScopeId, Some(kill))
           val initialized = init(scope)
           func(scope, initialized)
@@ -53,6 +55,7 @@ object CoprocessorScope {
       }
     } else {
       'CoprocessorScope.Pipe {
+        val setupScopeId = state.GetCurrentHandle()
         val scope = new CoprocessorScope(coprocScopeId, setupScopeId)
         val initialized = init(scope)
         func(scope, initialized)

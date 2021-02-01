@@ -16,22 +16,31 @@ trait Lattice {
     val lk = lattice_kernel
     val un = units
     val oc = config
-    if (isFullyUnrolled) {
-      val lattice = new FullyUnrolledLattice {
-        override val shape: MLTensor[Int] = s
-        override val lattice_kernel: MLTensor[Double] = lk
-        override val units: Int = un
-        override implicit val config: OptimizationConfig = oc
-      }
-      lattice(arg)
-    } else {
-      val lattice = new ReduceBasedLattice {
-        override val shape: MLTensor[Int] = s
-        override val lattice_kernel: MLTensor[Double] = lk
-        override val units: Int = un
-        override implicit val config: OptimizationConfig = oc
-      }
-      lattice(arg)
+    (isFullyUnrolled, mlir_libraries.Options.StreamLattice) match {
+      case (true, _) =>
+        val lattice = new FullyUnrolledLattice {
+          override val shape: MLTensor[Int] = s
+          override val lattice_kernel: MLTensor[Double] = lk
+          override val units: Int = un
+          override implicit val config: OptimizationConfig = oc
+        }
+        lattice(arg)
+      case (false, false) =>
+        val lattice = new ReduceBasedLattice {
+          override val shape: MLTensor[Int] = s
+          override val lattice_kernel: MLTensor[Double] = lk
+          override val units: Int = un
+          override implicit val config: OptimizationConfig = oc
+        }
+        lattice(arg)
+      case (false, true) =>
+        val lattice = new StreamReduceLattice {
+          override val shape: MLTensor[Int] = s
+          override val lattice_kernel: MLTensor[Double] = lk
+          override val units: Int = un
+          override implicit val config: OptimizationConfig = oc
+        }
+        lattice(arg)
     }
   }
 }

@@ -4,7 +4,7 @@ import mlir_libraries.types.TypeImplicits._
 import mlir_libraries.DumpScope
 @spatial class rtl_d1l2r4c16s1_log2_coproc(run_iterations: Int, lattice_loops: Int, pwl_iterations: Int) extends SpatialTest {
 
-  override def compileArgs = s"--max_cycles=${run_iterations * 1000 + 1000} --vv"
+//  override def compileArgs = s"--max_cycles=${run_iterations * 1000 + 1000} --vv"
 
   import spatial.dsl._
   type T = FixPt[TRUE, _9, _23]
@@ -128,7 +128,7 @@ class rtl_d1l2r4c16s1_log2_coproc_funroll1 extends rtl_d1l2r4c16s1_log2_coproc(1
 class rtl_d1l2r4c16s1_log2_coproc_funroll1_copy extends rtl_d1l2r4c16s1_log2_coproc(1, 0, 1)
 class rtl_d1l2r4c16s1_log2_coproc_funroll2 extends rtl_d1l2r4c16s1_log2_coproc(2, 0, 1)
 class rtl_d1l2r4c16s1_log2_coproc_funroll4 extends rtl_d1l2r4c16s1_log2_coproc(4, 0, 1)
-class rtl_d1l2r4c16s1_log2_coproc_funrollX extends rtl_d1l2r4c16s1_log2_coproc(sys.env.getOrElse("iterations", "8").toInt, 0, 1)
+class rtl_d1l2r4c16s1_log2_coproc_funrollX extends rtl_d1l2r4c16s1_log2_coproc(sys.env.getOrElse("iterations", "8").toInt, 3, 1)
 class rtl_d1l2r4c16s1_log2_coproc_funroll64 extends rtl_d1l2r4c16s1_log2_coproc(64, 0, 1)
 class rtl_d1l2r4c16s1_log2_coproc_funroll64_copy extends rtl_d1l2r4c16s1_log2_coproc(64, 0, 1)
 class rtl_d1l2r4c16s1_log2_coproc_funroll_full extends rtl_d1l2r4c16s1_log2_coproc(100000, 0, 1)

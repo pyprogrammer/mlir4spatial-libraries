@@ -292,6 +292,9 @@ trait StreamReduceLattice extends LatticeBase {
 
     val param_list = lattice_kernel.flatten.map { x => Bits(x.toUnchecked[T]) }
 
+    implicit val ev: Bits[Vec[T]] = Vec.fromSeq(Range(0, dimensions) map { _ => 0.to[T] })
+    @struct case class InputBundle(unit: I32, input: Vec[T])
+
     new ReadableND[T] {
       override def getInterface: Interface[T] = {
         val interfaces = Range(0, dimensions) map {
@@ -306,14 +309,14 @@ trait StreamReduceLattice extends LatticeBase {
         }
 
         val valueFIFO = coprocessorScope.escape {
-          implicit val ev: Bits[Vec[T]] = Vec.fromSeq(Range(0, dimensions) map { _ => 0.to[T] })
-          val tmp = FIFO[Vec[T]](I32(FIFODepth))
-          tmp.explicitName = "ValueFIFO"
+          val tmp = FIFO[InputBundle](I32(FIFODepth))
+          tmp.explicitName = "valueFIFO"
           tmp
         }
-        val unitFIFO = coprocessorScope.escape {
-          val tmp = FIFO[I32](I32(FIFODepth))
-          tmp.explicitName = "UnitFIFO"
+
+        val busyValueFIFO = coprocessorScope.escape {
+          val tmp = FIFO[InputBundle](I32(FIFODepth))
+          tmp.explicitName = "busyValueFIFO"
           tmp
         }
 
@@ -327,9 +330,7 @@ trait StreamReduceLattice extends LatticeBase {
               val values = Range(0, dimensions) map {
                 dim => interfaces(dim).deq(Seq(batch, unit, I32(dim)), Set(Bit(true)))
               }
-
-              valueFIFO.enq(Vec.fromSeq(values))
-              unitFIFO.enq(unit)
+              valueFIFO.enq(InputBundle(unit, Vec.fromSeq(values)))
           }
         }
 
@@ -348,14 +349,20 @@ trait StreamReduceLattice extends LatticeBase {
           val counters = Seq(stage(ForeverNew())) ++ Seq.fill(num_loop_dimensions) {Counter.from(I32(2) by I32(1))}
           val params = LUT[OutputType](lattice_kernel.shape.head, units)(param_list: _*)
 
+          'BusyStuffing.Pipe.Foreach(*) {
+            _ =>
+              busyValueFIFO.enq(InputBundle(I32(-1), Vec.fromSeq(Range(0, dimensions) map { _ => 0.to[T] })))
+          }
+
           'LatticeCompute.Pipe.II(1).Foreach(counters) {
             iter =>
               val i = iter.head
               val index = iter.tail
               // are we on a fresh iteration?
               val shouldTrigger = spatial.dsl.ForcedLatency(0.0) { index.map {x => x === I32(0)}.reduceTree {_ & _} }
-              val deqValues = stage(spatial.node.FIFODeq(valueFIFO, Set(shouldTrigger))(valueFIFO.A))
-              val unitValue = stage(spatial.node.FIFODeq(unitFIFO, Set(shouldTrigger)))
+              val deqed = priorityDeq(List(valueFIFO, busyValueFIFO), List(shouldTrigger, Bit(true)))
+              val deqValues: Vec[T] = deqed.input
+              val unitValue: I32 = deqed.unit
 
               // Bounce between two copies of the value registers
               val iterParity = i & I32(1)
@@ -432,7 +439,7 @@ trait StreamReduceLattice extends LatticeBase {
                   mux(ind === I32(0), floor(value + 1.to[T]) - value, value - floor(value))
               } reduceTree {_ * _}
 
-              intermediateResultFIFO.enq(intermediateResult * weight)
+              intermediateResultFIFO.enq(intermediateResult * weight, unit !== I32(-1))
           }
         }
 

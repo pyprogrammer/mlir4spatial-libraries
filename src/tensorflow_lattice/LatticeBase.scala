@@ -7,8 +7,10 @@ import _root_.spatial.libdsl
 import _root_.spatial.metadata.memory._
 import _root_.spatial.node.ForeverNew
 import argon.stage
+import mlir_libraries.debug_utils.TagVector
 
-trait LatticeBase {
+trait LatticeBase[T <: LatticeBase[T]] {
+  type LT = T
 
   def permissible: Boolean = true
 
@@ -34,7 +36,7 @@ trait LatticeBase {
   def apply[T: Num](arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: CoprocessorScope): ReadableND[T]
 }
 
-trait FullyUnrolledLattice extends LatticeBase {
+trait FullyUnrolledLattice extends LatticeBase[FullyUnrolledLattice] {
   override def permissible: Boolean = config.lattice_loops == 0
 
   override def apply[T: libdsl.Num](arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: CoprocessorScope): ReadableND[T] = {
@@ -99,7 +101,7 @@ trait FullyUnrolledLattice extends LatticeBase {
                   case (2, true) =>
                     0.to[ParameterIndex]
                   case (shape, _) =>
-                    min(inpt.to[ParameterIndex], I32(shape - 1))
+                    min(inpt.to[ParameterIndex], I32(shape - 2))
                 }
             }
 
@@ -136,7 +138,7 @@ trait FullyUnrolledLattice extends LatticeBase {
   }
 }
 
-trait ReduceBasedLattice extends LatticeBase {
+trait ReduceBasedLattice extends LatticeBase[ReduceBasedLattice] {
   override def apply[T: libdsl.Num](arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: CoprocessorScope): ReadableND[T] = {
 
     type ResidualType = T
@@ -211,7 +213,7 @@ trait ReduceBasedLattice extends LatticeBase {
                       case (2, true) =>
                         0.to[ParameterIndex]
                       case (shape, _) =>
-                        min(inpt.to[ParameterIndex], I32(shape - 1))
+                        min(inpt.to[ParameterIndex], I32(shape - 2))
                     }
                 }
 
@@ -271,7 +273,7 @@ trait ReduceBasedLattice extends LatticeBase {
   }
 }
 
-trait StreamReduceLattice extends LatticeBase {
+trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
   override def permissible: Boolean = mlir_libraries.Options.Coproc
 
   val FIFODepth = 32
@@ -472,6 +474,124 @@ trait StreamReduceLattice extends LatticeBase {
 
           override def deq(index: Seq[I32], ens: Set[Bit]): T = {
             stage(spatial.node.FIFODeq(outputFIFO,ens))
+          }
+        }
+      }
+
+      // A lattice goes from (batch, dim, unit) -> (batch, unit)
+      lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
+    }
+  }
+}
+
+trait CollapsedReduceBasedLattice extends LatticeBase[CollapsedReduceBasedLattice] {
+  override def apply[T: libdsl.Num](arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: CoprocessorScope): ReadableND[T] = {
+
+    type ResidualType = T
+    type AccumResidualType = T
+    type ParameterIndex = I32
+    type OutputType = T
+
+    val expanded_arg = if (arg.shape.length == 3) {
+      arg
+    } else {
+      tf.expand_dims(axis = 1)(arg)
+    }
+    assert(expanded_arg.shape.length == 3, "Expanded arg should have rank 3")
+
+    val param_list = lattice_kernel.flatten.map { x => Bits(x.toUnchecked[T]) }
+
+    new ReadableND[T] {
+      override def getInterface: Interface[T] = {
+        val interfaces = Range(0, dimensions) map {
+          _ => expanded_arg.getInterface
+        }
+
+        new Interface[T] {
+          override def enq(index: Seq[I32], ens: Set[Bit]): Void = {
+            val batch = index(index.length - 2)
+            val unit = index.last
+            Range(0, dimensions) foreach {
+              dim => interfaces(dim).enq(Seq(batch, unit, I32(dim)), ens)
+            }
+          }
+
+          override def deq(index: Seq[I32], ens: Set[Bit]): T = {
+            val batch = index(index.length - 2)
+            val unit = index.last
+            val params = LUT[OutputType](lattice_kernel.shape.head, units)(param_list: _*)
+
+            val sramReads = Range(0, dimensions) map {
+              dim =>
+                interfaces(dim).deq(Seq(batch, unit, I32(dim)), ens)
+            }
+
+            val chain = Range(0, num_loop_dimensions) map {_ => Counter.from(2 by 1)}
+
+            val result = Reg[T]
+            Reduce(result)(chain) {
+              ind =>
+                println(s"Index Var: $ind")
+                val remainingInputs = sramReads.drop(num_loop_dimensions)
+
+                val parallelResidualPairs = remainingInputs map {
+                  value =>
+                    val floored = floor(value).to[AccumResidualType]
+                    val diff = value - floored
+                    scala.Seq(diff, 1.toFloat.to[AccumResidualType] - diff)
+                }
+
+                val hypervolumes: Seq[AccumResidualType] = HypercubeLattice.CombinationTree(parallelResidualPairs: _*)(_ * _)
+
+                val base_vec = sramReads.zipWithIndex map {
+                  case (inpt, dim) =>
+                    (lattice_shape(dim), mlir_libraries.Options.PO2Opt) match {
+                      case (2, true) =>
+                        0.to[ParameterIndex]
+                      case (shape, _) =>
+                        min(inpt.to[ParameterIndex], I32(shape - 2))
+                    }
+                }
+
+                println(s"Base Vec: ${base_vec}")
+
+                val base_index = (base_vec zip strides) map { case (b, s) => b * s.to[ParameterIndex] } reduceTree { _ + _ }
+
+                val bump = ind zip strides map {
+                  case (i, stride) =>
+                    mux(i === I32(0), I32(0), I32(stride))
+                } reduceTree {_ + _}
+
+                println(s"Base Index: $base_index")
+
+                // Get flat index for each (corner + origin)
+                val indices: Seq[ParameterIndex] = corners map {
+                  corner =>
+                    val offset = ((corner zip parallel_strides) map {
+                      case (cc, stride) =>
+                        cc * stride
+                    }).sum.to[ParameterIndex]
+                    base_index + offset + bump
+                }
+
+                println(s"Indices: $indices")
+
+                val weight = sramReads.take(num_loop_dimensions) zip ind map {
+                  case (inpt, bit) =>
+                    val diff = inpt - floor(inpt)
+                      mux(bit===I32(0), 1.toFloat.to[OutputType] - diff.to[OutputType], diff.to[OutputType])
+                } reduceTree {_ * _}
+
+                // Get weighted sum
+                val v = hypervolumes.map(_.to[OutputType]).zip(indices).map {
+                  case (hv, i) =>
+                    hv * params(i, unit)
+                }.reduceTree {
+                  _ + _
+                }
+                v * weight
+            } {_ + _}
+            result
           }
         }
       }

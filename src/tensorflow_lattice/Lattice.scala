@@ -3,7 +3,8 @@ import mlir_libraries.types._
 import mlir_libraries.utils.checkpoint
 import spatial.libdsl._
 import mlir_libraries.{Coprocessor, CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
-import _root_.spatial.metadata.memory._
+
+import scala.reflect.ClassTag
 
 trait Lattice {
 
@@ -16,32 +17,38 @@ trait Lattice {
     val lk = lattice_kernel
     val un = units
     val oc = config
-    (isFullyUnrolled, mlir_libraries.Options.StreamLattice) match {
+
+    val lattice = (isFullyUnrolled, mlir_libraries.Options.StreamLattice) match {
       case (true, _) =>
-        val lattice = new FullyUnrolledLattice {
+        new FullyUnrolledLattice {
           override val shape: MLTensor[Int] = s
           override val lattice_kernel: MLTensor[Double] = lk
           override val units: Int = un
           override implicit val config: OptimizationConfig = oc
         }
-        lattice(arg)
-      case (false, false) =>
-        val lattice = new ReduceBasedLattice {
+      case (false, false) if mlir_libraries.Options.NestedReduceLattice =>
+        new ReduceBasedLattice {
           override val shape: MLTensor[Int] = s
           override val lattice_kernel: MLTensor[Double] = lk
           override val units: Int = un
           override implicit val config: OptimizationConfig = oc
         }
-        lattice(arg)
+      case (false, false) if !mlir_libraries.Options.NestedReduceLattice =>
+        new CollapsedReduceBasedLattice {
+          override val shape: MLTensor[Int] = s
+          override val lattice_kernel: MLTensor[Double] = lk
+          override val units: Int = un
+          override implicit val config: OptimizationConfig = oc
+        }
       case (false, true) =>
-        val lattice = new StreamReduceLattice {
+        new StreamReduceLattice {
           override val shape: MLTensor[Int] = s
           override val lattice_kernel: MLTensor[Double] = lk
           override val units: Int = un
           override implicit val config: OptimizationConfig = oc
         }
-        lattice(arg)
     }
+    lattice(arg)
   }
 }
 

@@ -296,6 +296,7 @@ trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
 
     implicit val ev: Bits[Vec[T]] = Vec.fromSeq(Range(0, dimensions) map { _ => 0.to[T] })
     @struct case class InputBundle(unit: I32, input: Vec[T])
+    @struct case class WithValid(valid: Bit, value: T)
 
     new ReadableND[T] {
       override def getInterface: Interface[T] = {
@@ -337,7 +338,7 @@ trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
         }
 
         val intermediateResultFIFO = coprocessorScope.escape {
-          val tmp = FIFO[T](I32(FIFODepth))
+          val tmp = FIFO[T](I32(1 << num_loop_dimensions) * I32(4))
           tmp.explicitName = "IntermediateFIFO"
           tmp
         }
@@ -451,14 +452,31 @@ trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
           tmp
         }
 
+        def accumLoop[U](exp: => U) = {
+          argon.withFlow("AccumLoop", s => {s.iterDiff = 1}){exp}
+        }
+
         coprocessorScope.setup {
-          Foreach(*) {
+//          val accum = accumLoop({Reg[T](zero[T])})
+//          accum.explicitName = "LatticeStreamAccum"
+//          accum.nonbuffer
+//
+//          'LatticeAccum.Pipe.Foreach(*, (1 << num_loop_dimensions) by 1) {
+//            (_, iter) =>
+//              accumLoop({
+//                val d1 = intermediateResultFIFO.deq
+////                val update = accum.value + d1
+//                val isLast = iter === I32((1 << num_loop_dimensions) - 1)
+////                accum := mux(isLast, zero[T], update)
+//                accum :+= d1
+//                outputFIFO.enq(accum.value, isLast)
+//              })
+//          }
+          'LatticeAccum.Pipe.Foreach(*) {
             _ =>
-              val reg = Reg[T]
-              Reduce(reg)((1 << num_loop_dimensions) by 1) {
-                _ => intermediateResultFIFO.deq
-              } { _ + _ }
-              outputFIFO.enq(reg)
+              val v = intermediateResultFIFO.deqVec(1 << num_loop_dimensions)
+              val sum = Range(0, 1 << num_loop_dimensions) map { i => v(i) } reduceTree {_ + _}
+              outputFIFO.enq(sum)
           }
         }
 

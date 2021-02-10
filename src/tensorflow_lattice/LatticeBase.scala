@@ -9,19 +9,17 @@ import _root_.spatial.node.ForeverNew
 import argon.stage
 import mlir_libraries.debug_utils.TagVector
 
-trait LatticeBase[T <: LatticeBase[T]] {
-  type LT = T
+trait LatticeBase[U <: LatticeBase[U]] {
+  type LT = U
 
   def permissible: Boolean = true
 
   val shape: MLTensor[Int]
   val lattice_kernel: MLTensor[Double]
   val units: Int
-  implicit val config: OptimizationConfig
 
   def dimensions = shape.shape.head
-  def num_loop_dimensions = scala.math.min(config.lattice_loops, dimensions - 1)
-  def isFullyUnrolled = config.lattice_loops == 0
+  def num_loop_dimensions: Int
   def parallel_dimensions = dimensions - num_loop_dimensions
   def strides = mlir_libraries.utils.ComputeStrides(shape.flatten.toIndexedSeq)
   def parallel_strides = strides.drop(num_loop_dimensions)
@@ -33,11 +31,10 @@ trait LatticeBase[T <: LatticeBase[T]] {
   lazy val corners: Seq[Seq[scala.Int]] = HypercubeLattice.allCorners(Seq.fill(parallel_dimensions)(1)).reverse
 
   // To be overridden by implementation
-  def apply[T: Num](arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: CoprocessorScope): ReadableND[T]
+  def apply[T: libdsl.Num](arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: CoprocessorScope): ReadableND[T]
 }
 
 trait FullyUnrolledLattice extends LatticeBase[FullyUnrolledLattice] {
-  override def permissible: Boolean = config.lattice_loops == 0
 
   override def apply[T: libdsl.Num](arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: CoprocessorScope): ReadableND[T] = {
 

@@ -1,51 +1,55 @@
 package tensorflow_lattice
+import mlir_libraries.LatticeOptions.LatticeConfig
 import mlir_libraries.types._
-import mlir_libraries.utils.checkpoint
 import spatial.libdsl._
-import mlir_libraries.{Coprocessor, CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
+import mlir_libraries.{LatticeOptions, Tensor => MLTensor}
 
-import scala.reflect.ClassTag
 
 trait Lattice {
 
+  object LatticeType extends Enumeration {
+    type LatticeType = Value
+    val Hypercube, Simplex = Value
+  }
+
   def Lattice[T: Num](lattice_kernel: MLTensor[scala.Double], tp: String, shape: MLTensor[scala.Int],
-                       units: Int)(arg: ReadableND[T])(implicit state: argon.State, config: mlir_libraries.OptimizationConfig,
-                                                       coprocessorScope: mlir_libraries.CoprocessorScope): ReadableND[T] = {
-    val isFullyUnrolled = config.lattice_loops == 0
+                       units: Int, latticeConfig: LatticeConfig = mlir_libraries.LatticeOptions.Unrolled)(arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: mlir_libraries.CoprocessorScope): ReadableND[T] = {
 
     val s = shape
     val lk = lattice_kernel
     val un = units
-    val oc = config
 
-    val lattice = (isFullyUnrolled, mlir_libraries.Options.StreamLattice) match {
-      case (true, _) =>
+    val lattice = latticeConfig match {
+      case LatticeOptions.Unrolled =>
         new FullyUnrolledLattice {
           override val shape: MLTensor[Int] = s
           override val lattice_kernel: MLTensor[Double] = lk
           override val units: Int = un
-          override implicit val config: OptimizationConfig = oc
+          override def num_loop_dimensions: Int = 0
         }
-      case (false, false) if mlir_libraries.Options.NestedReduceLattice =>
-        new ReduceBasedLattice {
-          override val shape: MLTensor[Int] = s
-          override val lattice_kernel: MLTensor[Double] = lk
-          override val units: Int = un
-          override implicit val config: OptimizationConfig = oc
-        }
-      case (false, false) if !mlir_libraries.Options.NestedReduceLattice =>
-        new CollapsedReduceBasedLattice {
-          override val shape: MLTensor[Int] = s
-          override val lattice_kernel: MLTensor[Double] = lk
-          override val units: Int = un
-          override implicit val config: OptimizationConfig = oc
-        }
-      case (false, true) =>
+      case LatticeOptions.Streamed(loop_dimensions) =>
         new StreamReduceLattice {
           override val shape: MLTensor[Int] = s
           override val lattice_kernel: MLTensor[Double] = lk
           override val units: Int = un
-          override implicit val config: OptimizationConfig = oc
+
+          override def num_loop_dimensions: Int = loop_dimensions
+        }
+      case LatticeOptions.Flattened(loop_dimensions) =>
+        new CollapsedReduceBasedLattice {
+          override val shape: MLTensor[Int] = s
+          override val lattice_kernel: MLTensor[Double] = lk
+          override val units: Int = un
+
+          override def num_loop_dimensions: Int = loop_dimensions
+        }
+      case LatticeOptions.Recursive(loop_dimensions) =>
+        new ReduceBasedLattice {
+          override val shape: MLTensor[Int] = s
+          override val lattice_kernel: MLTensor[Double] = lk
+          override val units: Int = un
+
+          override def num_loop_dimensions: Int = loop_dimensions
         }
     }
     lattice(arg)

@@ -6,7 +6,7 @@ import mlir_libraries.{CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
 
 object LatticeTest {
   val iterations = 20
-  val repeats = 1
+  val repeats = 100
   val kernel_values = scala.Array(0.0110625 , 0.02584553, 0.07165873, 0.26998997, 0.06218195,
     0.1307857 , 0.29879928, 0.35565615, 0.07956052, 0.15393174,
     0.3418517 , 0.75207484, 0.08045971, 0.57496   , 0.8091949 ,

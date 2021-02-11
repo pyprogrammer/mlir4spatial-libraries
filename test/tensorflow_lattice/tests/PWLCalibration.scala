@@ -1,7 +1,7 @@
 package tensorflow_lattice.tests
 
 import mlir_libraries.types.TypeImplicits._
-import mlir_libraries.{CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
+import mlir_libraries.{CoprocessorScope, Tensor => MLTensor}
 import spatial.dsl._
 
 object PWLCalibrationTest {
@@ -24,8 +24,6 @@ object PWLCalibrationTest {
 
   type T = spatial.dsl.FixPt[TRUE, _5, _27]
   val dimensions = I32(1)
-
-  implicit val cfg = OptimizationConfig(lattice_loops = 0, pwl_iterations = num_loops)
 
   def main(args: Array[String]): Unit = {
     val iterations = I32(PWLCalibrationTest.iterations)

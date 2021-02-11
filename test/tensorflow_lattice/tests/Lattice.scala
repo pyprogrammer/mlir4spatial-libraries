@@ -2,7 +2,7 @@ package tensorflow_lattice.tests
 
 import spatial.dsl._
 import mlir_libraries.types.TypeImplicits._
-import mlir_libraries.{CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
+import mlir_libraries.{CoprocConfig, CoprocOptions, CoprocessorScope, LatticeConfig, LatticeOptions, Tensor => MLTensor}
 
 object LatticeTest {
   val iterations = 20
@@ -59,14 +59,13 @@ object LatticeTest {
   0.4168449 ).take(iterations)
 }
 
-@spatial class LatticeTest(loop_dimensions: scala.Int) extends SpatialTest {
+@spatial class LatticeTest(config: mlir_libraries.LatticeConfig) extends SpatialTest {
 
 //  override def compileArgs = "--max_cycles=2000"
 
   type T = spatial.dsl.FixPt[TRUE, _2, _30]
   val dimensions = 5
 
-  implicit val cfg = OptimizationConfig(lattice_loops = loop_dimensions, pwl_iterations = 1)
   def main(args: Array[String]): Unit = {
     val iterations = LatticeTest.iterations
     val input_DRAM = DRAM[T](iterations, dimensions)
@@ -83,7 +82,7 @@ object LatticeTest {
           tensorflow_lattice.tfl.Lattice(tp = "hypercube",
             shape = MLTensor(values = scala.Array(2, 2, 2, 2, 2), shape = scala.Array(5)),
             units = 1,
-            lattice_kernel = LatticeTest.lattice_kernel)(input_sram)
+            lattice_kernel = LatticeTest.lattice_kernel, config = config)(input_sram)
       } {
         case (scope, lattice) =>
           val interface = lattice.getInterface
@@ -111,8 +110,19 @@ object LatticeTest {
   }
 }
 
-class LatticeTestL0 extends LatticeTest(0)
-class LatticeTestL1 extends LatticeTest(1)
-class LatticeTestL2 extends LatticeTest(2)
-class LatticeTestL3 extends LatticeTest(3)
-class LatticeTestL4 extends LatticeTest(4)
+class LatticeTestUnrolled extends LatticeTest(config = LatticeConfig(LatticeOptions.Unrolled))
+
+class LatticeTestStreamL1 extends LatticeTest(config = LatticeConfig(LatticeOptions.Streamed(1)))
+class LatticeTestStreamL2 extends LatticeTest(config = LatticeConfig(LatticeOptions.Streamed(2)))
+class LatticeTestStreamL3 extends LatticeTest(config = LatticeConfig(LatticeOptions.Streamed(3)))
+class LatticeTestStreamL4 extends LatticeTest(config = LatticeConfig(LatticeOptions.Streamed(4)))
+
+class LatticeTestFlattenedL1 extends LatticeTest(config = LatticeConfig(LatticeOptions.Flattened(1)))
+class LatticeTestFlattenedL2 extends LatticeTest(config = LatticeConfig(LatticeOptions.Flattened(2)))
+class LatticeTestFlattenedL3 extends LatticeTest(config = LatticeConfig(LatticeOptions.Flattened(3)))
+class LatticeTestFlattenedL4 extends LatticeTest(config = LatticeConfig(LatticeOptions.Flattened(4)))
+
+class LatticeTestRecursiveL1 extends LatticeTest(config = LatticeConfig(LatticeOptions.Recursive(1)))
+class LatticeTestRecursiveL2 extends LatticeTest(config = LatticeConfig(LatticeOptions.Recursive(2)))
+class LatticeTestRecursiveL3 extends LatticeTest(config = LatticeConfig(LatticeOptions.Recursive(3)))
+class LatticeTestRecursiveL4 extends LatticeTest(config = LatticeConfig(LatticeOptions.Recursive(4)))

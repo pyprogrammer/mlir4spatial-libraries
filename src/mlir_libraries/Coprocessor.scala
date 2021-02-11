@@ -1,12 +1,10 @@
 package mlir_libraries
 
-import forge.tags.api
+import mlir_libraries.Coprocessor.getId
 import spatial.libdsl._
 import spatial.metadata.memory._
-import argon.State
-import mlir_libraries.Coprocessor.getId
 
-class CoprocessorScope(val coprocessorScopeId: argon.BundleHandle, val setupScopeId: argon.BundleHandle, killReg: Option[Reg[Bit]] = None)(implicit s: argon.State) {
+class CoprocessorScope(val coprocessorScopeId: argon.BundleHandle, val setupScopeId: argon.BundleHandle, killReg: Option[Reg[Bit]] = None, val config: CoprocConfig)(implicit s: argon.State) {
   type T = () => Any
   val state: argon.State = s
 
@@ -37,29 +35,29 @@ class CoprocessorScope(val coprocessorScopeId: argon.BundleHandle, val setupScop
     case Some(reg) => reg := 1.to[Bit]
     case None => new Void
   }
-//  def setup[T](thunk: => T): T = escapeToScope(setupScopeId, thunk)
 }
 
 object CoprocessorScope {
-  def apply[T](init: CoprocessorScope => T)(func: (CoprocessorScope, T) => Any)(implicit state: argon.State): Void = {
+  def apply[T](init: CoprocessorScope => T)(func: (CoprocessorScope, T) => Any)(implicit state: argon.State, config: CoprocConfig = CoprocConfig()): Void = {
     val coprocScopeId = state.GetCurrentHandle()
-    if (Options.Coproc) {
-      val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill").dontTouch
-      'CoprocessorScope.Stream(breakWhen = kill)(implicitly, implicitly) {
+    config.mode match {
+      case CoprocOptions.Stream =>
+        val kill: Reg[Bit] = Reg[Bit](false, "CoprocessorScopeKill").dontTouch
+        'CoprocessorScope.Stream(breakWhen = kill)(implicitly, implicitly) {
           // Stage into current scope
           val setupScopeId = state.GetCurrentHandle()
-          val scope = new CoprocessorScope(coprocScopeId, setupScopeId, Some(kill))
+          val scope = new CoprocessorScope(coprocScopeId, setupScopeId, Some(kill), config)
           val initialized = init(scope)
           func(scope, initialized)
           scope.instantiate()
-      }
-    } else {
-      'CoprocessorScope.Pipe {
-        val setupScopeId = state.GetCurrentHandle()
-        val scope = new CoprocessorScope(coprocScopeId, setupScopeId)
-        val initialized = init(scope)
-        func(scope, initialized)
-      }
+        }
+      case CoprocOptions.Pipelined =>
+        'CoprocessorScope.Pipe {
+          val setupScopeId = state.GetCurrentHandle()
+          val scope = new CoprocessorScope(coprocScopeId, setupScopeId, None, config)
+          val initialized = init(scope)
+          func(scope, initialized)
+        }
     }
   }
 }

@@ -3,7 +3,7 @@ package mlir_libraries.tests
 import emul.FixedPoint
 import spatial.dsl._
 import mlir_libraries.types.TypeImplicits._
-import mlir_libraries.{CoprocessorScope, OptimizationConfig, types, Tensor => MLTensor}
+import mlir_libraries.{CoprocessorScope, types, Tensor => MLTensor}
 
 object LatticeWithMaterializeTest {
   val iterations = 20
@@ -67,7 +67,6 @@ object LatticeWithMaterializeTest {
   type T = spatial.dsl.FixPt[TRUE, _2, _30]
   val dimensions = 5
 
-  implicit val cfg = OptimizationConfig(lattice_loops = 4)
   def main(args: Array[String]): Unit = {
     val iterations = LatticeWithMaterializeTest.iterations
     val input_DRAM = DRAM[T](iterations, dimensions)
@@ -113,7 +112,6 @@ object LatticeWithMaterializeTest {
   type T = spatial.dsl.FixPt[TRUE, _2, _30]
   val dimensions = 5
 
-  implicit val cfg = OptimizationConfig(lattice_loops = 4)
   def main(args: Array[String]): Unit = {
     val iterations = LatticeWithMaterializeTest.iterations
     val input_DRAM = DRAM[T](iterations, dimensions)
@@ -138,7 +136,6 @@ object LatticeWithMaterializeTest {
           Stream {
             Pipe.Foreach(iterations by 1) { i =>
               interface.enq(Seq(i, I32(0)), Set(Bit(true)))
-//              output_sram(i) = materialized(Seq(i, I32(0)), Set(Bit(true)))()
             }
 
             Pipe {

@@ -14,10 +14,10 @@ trait PWLCalibration {
   }
 
   def PWLCalibration[T: Num : Bits](pwl_calibration_kernel: MLTensor[scala.Double], input_keypoints: MLTensor[scala.Double])(arg: ReadableND[T])
-                                   (implicit state: argon.State, config: mlir_libraries.OptimizationConfig) = {
+                                   (implicit state: argon.State) = {
     // kernel is phrased as bias :: deltas.
     // however, we wish to use a priority mux instead, so we first compute the running sum.
-    val num_loops = config.pwl_iterations
+    val num_loops = 1
     val id = getPWLId()
 
     assert(pwl_calibration_kernel.rank == 2, "PWL Kernel must be rank 2")

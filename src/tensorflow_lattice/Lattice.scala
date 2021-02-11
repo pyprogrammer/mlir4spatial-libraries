@@ -1,8 +1,8 @@
 package tensorflow_lattice
-import mlir_libraries.LatticeOptions.LatticeConfig
+import mlir_libraries.LatticeOptions.LatticeImplMethod
 import mlir_libraries.types._
 import spatial.libdsl._
-import mlir_libraries.{LatticeOptions, Tensor => MLTensor}
+import mlir_libraries.{LatticeConfig, LatticeOptions, Tensor => MLTensor}
 
 
 trait Lattice {
@@ -13,19 +13,21 @@ trait Lattice {
   }
 
   def Lattice[T: Num](lattice_kernel: MLTensor[scala.Double], tp: String, shape: MLTensor[scala.Int],
-                       units: Int, latticeConfig: LatticeConfig = mlir_libraries.LatticeOptions.Unrolled)(arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: mlir_libraries.CoprocessorScope): ReadableND[T] = {
+                       units: Int, config: LatticeConfig = LatticeConfig())(arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: mlir_libraries.CoprocessorScope): ReadableND[T] = {
 
     val s = shape
     val lk = lattice_kernel
     val un = units
 
-    val lattice = latticeConfig match {
+    val lattice = config.impl match {
       case LatticeOptions.Unrolled =>
         new FullyUnrolledLattice {
           override val shape: MLTensor[Int] = s
           override val lattice_kernel: MLTensor[Double] = lk
           override val units: Int = un
           override def num_loop_dimensions: Int = 0
+
+          override val PO2Opt: Boolean = config.PO2Opt.en
         }
       case LatticeOptions.Streamed(loop_dimensions) =>
         new StreamReduceLattice {
@@ -34,6 +36,7 @@ trait Lattice {
           override val units: Int = un
 
           override def num_loop_dimensions: Int = loop_dimensions
+          override val PO2Opt: Boolean = config.PO2Opt.en
         }
       case LatticeOptions.Flattened(loop_dimensions) =>
         new CollapsedReduceBasedLattice {
@@ -42,6 +45,7 @@ trait Lattice {
           override val units: Int = un
 
           override def num_loop_dimensions: Int = loop_dimensions
+          override val PO2Opt: Boolean = config.PO2Opt.en
         }
       case LatticeOptions.Recursive(loop_dimensions) =>
         new ReduceBasedLattice {
@@ -50,6 +54,7 @@ trait Lattice {
           override val units: Int = un
 
           override def num_loop_dimensions: Int = loop_dimensions
+          override val PO2Opt: Boolean = config.PO2Opt.en
         }
     }
     lattice(arg)
@@ -57,8 +62,6 @@ trait Lattice {
 }
 
 private object HypercubeLattice {
-  val PO2Opt = sys.env.getOrElse("PO2Opt", "true") == "true"
-
   def allCorners(maxes: Seq[scala.Int], partials: Seq[Seq[scala.Int]] = Seq(Seq.empty)): Seq[Seq[scala.Int]] = maxes match {
     case Nil => Nil
     case h :: tail if tail.nonEmpty => (0 to h).flatMap { i => allCorners(tail, partials.map(_ ++ Seq(i))) }

@@ -1,16 +1,15 @@
 package generated
 import spatial.libdsl._
 import mlir_libraries.types.TypeImplicits._
-import mlir_libraries.DumpScope
-@spatial class rtl_d1l2r4c16s1_log2_coproc(run_iterations: Int, lattice_loops: Int, pwl_iterations: Int) extends SpatialTest {
+import mlir_libraries.{DumpScope, LatticeConfig, LatticeOptions}
+@spatial class rtl_d1l2r4c16s1_log2_coproc(repeat_iterations: Int, run_iterations: Int, implicit val config: mlir_libraries.LatticeConfig) extends SpatialTest {
 
-//  override def compileArgs = s"--max_cycles=${run_iterations * 1000 + 1000} --vv"
+  override def compileArgs = s"--max_cycles=${repeat_iterations*run_iterations * 1000 + 10000} --vv"
 
   import spatial.dsl._
   type T = FixPt[TRUE, _9, _23]
   val iterations = run_iterations
   val offset = I32(0)
-  implicit val cfg = mlir_libraries.OptimizationConfig(lattice_loops = lattice_loops, pwl_iterations = pwl_iterations)
   def main(args: Array[String]) : Unit = {
     val dram_0 = DRAM[T](I32(iterations), I32(1))
     val dram_1 = DRAM[T](I32(iterations), I32(1))
@@ -85,13 +84,15 @@ import mlir_libraries.DumpScope
           } {
           case (scope, tmp) =>
             val result = tmp.getInterface
-            'Enqueue.Pipe.Foreach(I32(iterations) by I32(1)) { i =>
-              result.enq(Seq(i, I32(0)), Set(Bit(true)))
+            'Enqueue.Pipe.Foreach(I32(repeat_iterations) by I32(1), I32(iterations) by I32(1)) {
+              (x, i) =>
+                result.enq(Seq(i, I32(0)), Set(Bit(true)))
             }
 
             Sequential {
-              'Dequeue.Pipe.Foreach(I32(iterations) by I32(1)) { i =>
-                output_sram(i) = result.deq(Seq(i, I32(0)), Set(Bit(true)))
+              'Dequeue.Pipe.Foreach(I32(repeat_iterations) by I32(1), I32(iterations) by I32(1)) {
+                (x, i) =>
+                  output_sram(i) = result.deq(Seq(i, I32(0)), Set(Bit(true)))
               }
               Parallel {
                 dumpScope.store()
@@ -121,15 +122,18 @@ import mlir_libraries.DumpScope
         }
     }
     assert(Bit(true), "Compiles and runs")
+
+    println(r"Config: $repeat_iterations, $run_iterations, ${config}")
   }
 }
 
-class rtl_d1l2r4c16s1_log2_coproc_funroll1 extends rtl_d1l2r4c16s1_log2_coproc(1, 0, 1)
-class rtl_d1l2r4c16s1_log2_coproc_funroll1_copy extends rtl_d1l2r4c16s1_log2_coproc(1, 0, 1)
-class rtl_d1l2r4c16s1_log2_coproc_funroll2 extends rtl_d1l2r4c16s1_log2_coproc(2, 0, 1)
-class rtl_d1l2r4c16s1_log2_coproc_funroll4 extends rtl_d1l2r4c16s1_log2_coproc(4, 0, 1)
-class rtl_d1l2r4c16s1_log2_coproc_funrollX extends rtl_d1l2r4c16s1_log2_coproc(sys.env.getOrElse("iterations", "8").toInt, 3, 1)
-class rtl_d1l2r4c16s1_log2_coproc_funroll64 extends rtl_d1l2r4c16s1_log2_coproc(64, 0, 1)
-class rtl_d1l2r4c16s1_log2_coproc_funroll64_copy extends rtl_d1l2r4c16s1_log2_coproc(64, 0, 1)
-class rtl_d1l2r4c16s1_log2_coproc_funroll_full extends rtl_d1l2r4c16s1_log2_coproc(100000, 0, 1)
+class rtl_d1l2r4c16s1_log2_coproc_main(config: LatticeConfig) extends rtl_d1l2r4c16s1_log2_coproc(16, 1, config)
 
+class rtl_d1l2r4c16s1_log2_coproc_unrolled extends rtl_d1l2r4c16s1_log2_coproc_main(config = LatticeConfig(LatticeOptions.Unrolled))
+class rtl_d1l2r4c16s1_log2_coproc_streamed1 extends rtl_d1l2r4c16s1_log2_coproc_main(config = LatticeConfig(LatticeOptions.Streamed(1)))
+class rtl_d1l2r4c16s1_log2_coproc_flattened1 extends rtl_d1l2r4c16s1_log2_coproc_main(config = LatticeConfig(LatticeOptions.Flattened(1)))
+class rtl_d1l2r4c16s1_log2_coproc_recursive1 extends rtl_d1l2r4c16s1_log2_coproc_main( config = LatticeConfig(LatticeOptions.Recursive(1)))
+
+class rtl_d1l2r4c16s1_log2_coproc_streamed2 extends rtl_d1l2r4c16s1_log2_coproc_main( config = LatticeConfig(LatticeOptions.Streamed(2)))
+class rtl_d1l2r4c16s1_log2_coproc_flattened2 extends rtl_d1l2r4c16s1_log2_coproc_main(config = LatticeConfig(LatticeOptions.Flattened(2)))
+class rtl_d1l2r4c16s1_log2_coproc_recursive2 extends rtl_d1l2r4c16s1_log2_coproc_main(config = LatticeConfig(LatticeOptions.Recursive(2)))

@@ -2,7 +2,7 @@ package tensorflow_lattice
 import mlir_libraries.types._
 import mlir_libraries.utils.checkpoint
 import spatial.libdsl._
-import mlir_libraries.{Coprocessor, CoprocessorScope, OptimizationConfig, Tensor => MLTensor}
+import mlir_libraries.{Coprocessor, CoprocessorScope, Tensor => MLTensor}
 import _root_.spatial.libdsl
 import _root_.spatial.metadata.memory._
 import _root_.spatial.node.ForeverNew
@@ -12,11 +12,10 @@ import mlir_libraries.debug_utils.TagVector
 trait LatticeBase[U <: LatticeBase[U]] {
   type LT = U
 
-  def permissible: Boolean = true
-
   val shape: MLTensor[Int]
   val lattice_kernel: MLTensor[Double]
   val units: Int
+  val PO2Opt: Boolean
 
   def dimensions = shape.shape.head
   def num_loop_dimensions: Int
@@ -94,7 +93,7 @@ trait FullyUnrolledLattice extends LatticeBase[FullyUnrolledLattice] {
 
             val base_vec = (Range(num_loop_dimensions, dimensions) zip intermediate_values) map {
               case (dim, inpt) =>
-                (lattice_shape(dim), mlir_libraries.Options.PO2Opt) match {
+                (lattice_shape(dim), PO2Opt) match {
                   case (2, true) =>
                     0.to[ParameterIndex]
                   case (shape, _) =>
@@ -206,7 +205,7 @@ trait ReduceBasedLattice extends LatticeBase[ReduceBasedLattice] {
 
                 val base_vec = (Range(num_loop_dimensions, dimensions) zip remainingInputs) map {
                   case (dim, inpt) =>
-                    (lattice_shape(dim), mlir_libraries.Options.PO2Opt) match {
+                    (lattice_shape(dim), PO2Opt) match {
                       case (2, true) =>
                         0.to[ParameterIndex]
                       case (shape, _) =>
@@ -271,7 +270,6 @@ trait ReduceBasedLattice extends LatticeBase[ReduceBasedLattice] {
 }
 
 trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
-  override def permissible: Boolean = mlir_libraries.Options.Coproc
 
   val FIFODepth = 32
 
@@ -302,7 +300,7 @@ trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
         }
 
         val indexFIFO = coprocessorScope.escape {
-          implicit val ev: Bits[Vec[I32]] = Vec.fromSeq(arg.shape.indices map { _ => I32(0) })
+          implicit val ev: Bits[Vec[I32]] = Vec.fromSeq(Seq(I32(0), I32(0)))
           val tmp = FIFO[Vec[I32]](I32(FIFODepth))
           tmp.explicitName = "IndexFIFO"
           tmp
@@ -324,6 +322,7 @@ trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
           'LatticeFetch.Pipe.Foreach(*) {
             i =>
               val index = indexFIFO.deq()
+              println(s"Index Width: ${index.width}")
               val batch = index(index.width - 2)
               val unit = index(index.width - 1)
 
@@ -360,7 +359,7 @@ trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
               val index = iter.tail
               // are we on a fresh iteration?
               val shouldTrigger = spatial.dsl.ForcedLatency(0.0) { index.map {x => x === I32(0)}.reduceTree {_ & _} }
-              val deqed = priorityDeq(List(valueFIFO, busyValueFIFO), List(shouldTrigger, Bit(true)))
+              val deqed = priorityDeq(List(valueFIFO, busyValueFIFO), List(shouldTrigger, shouldTrigger))
               val deqValues: Vec[T] = deqed.input
               val unitValue: I32 = deqed.unit
 
@@ -394,7 +393,7 @@ trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
               // compute the base vector for indexing the parameter space.
               val base_vec = values.zipWithIndex map {
                 case (inpt, dim) =>
-                  (lattice_shape(dim), mlir_libraries.Options.PO2Opt) match {
+                  (lattice_shape(dim), PO2Opt) match {
                     case (2, true) =>
                       0.to[ParameterIndex]
                     case (shape, _) =>
@@ -454,21 +453,6 @@ trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
         }
 
         coprocessorScope.setup {
-//          val accum = accumLoop({Reg[T](zero[T])})
-//          accum.explicitName = "LatticeStreamAccum"
-//          accum.nonbuffer
-//
-//          'LatticeAccum.Pipe.Foreach(*, (1 << num_loop_dimensions) by 1) {
-//            (_, iter) =>
-//              accumLoop({
-//                val d1 = intermediateResultFIFO.deq
-////                val update = accum.value + d1
-//                val isLast = iter === I32((1 << num_loop_dimensions) - 1)
-////                accum := mux(isLast, zero[T], update)
-//                accum :+= d1
-//                outputFIFO.enq(accum.value, isLast)
-//              })
-//          }
           'LatticeAccum.Pipe.Foreach(*) {
             _ =>
               val v = intermediateResultFIFO.deqVec(1 << num_loop_dimensions)
@@ -560,7 +544,7 @@ trait CollapsedReduceBasedLattice extends LatticeBase[CollapsedReduceBasedLattic
 
                 val base_vec = sramReads.zipWithIndex map {
                   case (inpt, dim) =>
-                    (lattice_shape(dim), mlir_libraries.Options.PO2Opt) match {
+                    (lattice_shape(dim), PO2Opt) match {
                       case (2, true) =>
                         0.to[ParameterIndex]
                       case (shape, _) =>

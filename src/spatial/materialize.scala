@@ -10,10 +10,9 @@ import _root_.spatial.node.SRAMRead
 trait Materialization {
   @forge.tags.api def Materialize[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])
                          (implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
-    if (Options.Coproc) {
-      MaterializeCoproc(parallelization, uptime)(arg)
-    } else {
-      MaterializeSRAM(parallelization, uptime)(arg)
+    cps.config.mode match {
+      case CoprocOptions.Stream => MaterializeCoproc(parallelization, uptime)(arg)
+      case CoprocOptions.Pipelined => MaterializeSRAM(parallelization, uptime)(arg)
     }
   }
 

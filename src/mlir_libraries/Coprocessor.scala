@@ -75,7 +75,7 @@ object Coprocessor {
 }
 
 // The coprocessor scope defines the control stream.
-abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
+abstract class Coprocessor[In_T: Bits, Out_T: Bits]{
   def coprocessorScope: CoprocessorScope
   implicit val state: argon.State = coprocessorScope.state
 
@@ -113,7 +113,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits] {
     assert(!frozen, "Shouldn't be frozen yet")
     frozen = true
 
-    assert(input_fifos.nonEmpty, "Input Fifo's cant be empty!")
     assert(output_fifos.size == numInterfaces, s"Expected $numInterfaces fifos, got ${output_fifos.size}")
     assert(credit_fifos.size == numInterfaces, s"Expected $numInterfaces fifos, got ${credit_fifos.size}")
 

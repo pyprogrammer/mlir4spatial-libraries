@@ -9,6 +9,7 @@ val paradise_version  = "2.1.0"
 resolvers += Resolver.sonatypeRepo("snapshots")
 resolvers += Resolver.sonatypeRepo("releases")
 addCompilerPlugin("org.scalamacros" % "paradise" % paradise_version cross CrossVersion.full)
+organization := "edu.stanford.cs.dawn"
 
 scalacOptions ++= Seq("-explaintypes", "-language:experimental.macros")
 
@@ -28,3 +29,4 @@ Test / javaSource := baseDirectory.value / "test/"
 
 testForkedParallel in IntegrationTest := true
 concurrentRestrictions in Global := Seq(Tags.limitAll(32))
+isSnapshot := true

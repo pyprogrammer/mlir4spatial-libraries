@@ -8,7 +8,7 @@ import _root_.spatial.node.SRAMRead
 
 // For MLIR-spatial native operations
 trait Materialization {
-  @forge.tags.api def Materialize[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])
+  def Materialize[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])
                          (implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
     cps.config.mode match {
       case CoprocOptions.Stream => MaterializeCoproc(parallelization, uptime)(arg)
@@ -198,14 +198,9 @@ trait Materialization {
     }
   }
 
-  def MaterializeCoproc[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope, srcCtx: SrcCtx): types.ReadableND[T] = {
+  def MaterializeCoproc[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
 
     val dimensions = arg.shape.length
-
-    type CoprocessorLike = {
-      def enq(inputs: Seq[I32], en: Bit): Void
-      def deq(inputs: Seq[I32], en: Bit): T
-    }
 
     val tmp = cps.escape { Vec.fromSeq(Range(0, dimensions) map {x => I32(0)}) }
     implicit val bitsEV: Bits[Vec[I32]] = tmp
@@ -234,18 +229,19 @@ trait Materialization {
       }
     }
 
+    var count = 0
+    def getCount() = {
+      val cnt = count
+      count += 1
+      cnt
+    }
+
     new types.ReadableND[T] {
       override lazy val shape = arg.shape
 
-      var count = 0
-      def getCount() = {
-        val cnt = count
-        count += 1
-        cnt
-      }
-
       override def getInterface: types.Interface[T] = {
-        val coproc = coprocessors(getCount() % parallelization)
+        val index = getCount()
+        val coproc = coprocessors(index % parallelization)
         val interface = coproc.interface
         new types.Interface[T] {
           override def enq(index: Seq[I32], ens: Set[Bit]): Void = {

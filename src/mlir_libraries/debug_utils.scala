@@ -153,14 +153,20 @@ class DumpScope(implicit state: argon.State) {
             case _ => None
           }
 
-          val intermediate: RegFile1[T] = RegFile[T](arg.size)
+          val intermediate = RegFile[T](arg.size)
           intermediate.explicitName = f"dump_SRAM_$name"
+          intermediate.dontTouch
+          intermediate.nonbuffer
 
-          val accessSram: RegFile1[I32] = RegFile[I32](arg.size, zeros)
+          val accessSram = RegFile[I32](arg.size, zeros)
           accessSram.explicitName = f"dump_SRAM_valid_$name"
+          accessSram.dontTouch
+          accessSram.nonbuffer
 
-          val requestSram: RegFile1[I32] = RegFile[I32](arg.size, zeros)
+          val requestSram = RegFile[I32](arg.size, zeros)
           requestSram.explicitName = f"dump_SRAM_rqst_$name"
+          requestSram.dontTouch
+          requestSram.nonbuffer
 
           (accessSram, intermediate, requestSram)
         }

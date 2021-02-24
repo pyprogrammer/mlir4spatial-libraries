@@ -51,7 +51,7 @@ import mlir_libraries.{DumpScope, LatticeConfig, LatticeOptions}
 
     val output_DRAM = DRAM[T](I32(iterations))
 
-    implicit val dumpScope = new DumpScope()
+    implicit val dumpScope: DumpScope = new DumpScope()
     Accel {
       val sram_0 = SRAM[T](I32(iterations), I32(1))
       val sram_1 = SRAM[T](I32(iterations), I32(1))

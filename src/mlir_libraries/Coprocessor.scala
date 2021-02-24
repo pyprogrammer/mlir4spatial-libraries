@@ -131,9 +131,12 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits]{
         prealloc_fifo.enq(mux(shouldEnqRealCredit, ind, I32(-1)))
     }
 
-    val credits = RegFile[I32](I32(CREDIT_REPLICANTS), I32(numInterfaces), Range(0, CREDIT_REPLICANTS * numInterfaces) map { _ => I32(PREALLOC_CREDITS / CREDIT_REPLICANTS) })
-    credits.nonbuffer
-    credits.explicitName = s"CreditRegFile_${id}"
+//    val credits = RegFile[I32](I32(CREDIT_REPLICANTS), I32(numInterfaces), Range(0, CREDIT_REPLICANTS * numInterfaces) map { _ => I32(PREALLOC_CREDITS / CREDIT_REPLICANTS) })
+    val credits = Range(0, numInterfaces) map {inter =>
+      RegFile[I32](I32(CREDIT_REPLICANTS), Range(0, CREDIT_REPLICANTS) map { _ => I32(PREALLOC_CREDITS / CREDIT_REPLICANTS)})
+    }
+//    credits.nonbuffer
+//    credits.explicitName = s"CreditRegFile_${id}"
 
     implicit val ev: Bits[Vec[Bit]] = Vec.fromSeq(Range(0, numInterfaces) map { _ => Bit(false) })
     val deqEnableFIFO = FIFO[Vec[Bit]](I32(CREDIT_REPLICANTS / 2))
@@ -142,7 +145,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits]{
     'CoprocessorArbiterEnableCalcs.Pipe.Foreach(*) {
       iter => {
         val creditIter = iter % I32(CREDIT_REPLICANTS)
-        deqEnableFIFO.enq(Vec.fromSeq(Range(0, numInterfaces) map { iid => credits(creditIter, I32(iid)) > I32(0) }))
+        deqEnableFIFO.enq(Vec.fromSeq(Range(0, numInterfaces) map { iid => credits(iid)(I32(iid)) > I32(0) }))
       }
     }
 
@@ -166,7 +169,8 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits]{
             val isNextTask = I32(iid) === nextTask.id
             val receivedCredit = I32(iid) === creditUpdate
             val update = mux(receivedCredit, I32(1), I32(0)) - mux(isNextTask, I32(1), I32(0))
-            credits(creditIter, I32(iid)) = credits(creditIter, I32(iid)) + update
+            credits(iid)(creditIter) += update
+//            credits(creditIter, I32(iid)) = credits(creditIter, I32(iid)) + update
         }
         central_input_fifo.enq(nextTask, isValid)
         enq(nextTask.payload, Set(isValid))
@@ -226,7 +230,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits]{
 
   def interface(implicit srcCtx: SrcCtx): CoprocessorInterface = {
     val iid = getInterfaceId
-    println(s"Creating Interface: $id -> $iid")
 
     val io = coprocessorScope.escape {
 

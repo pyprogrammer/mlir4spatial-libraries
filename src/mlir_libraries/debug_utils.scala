@@ -15,7 +15,7 @@ object debug_utils {
     result.value
   }
 
-  def TagVector[T: Bits](name: String, values: Seq[T], ens: Set[Bit] = Set.empty)(implicit state: argon.State): Void = {
+  @forge.tags.api def TagVector[T: Bits](name: String, values: Seq[T], ens: Set[Bit] = Set.empty): Void = {
     if (!Options.Debug) { return new Void }
     {
       // For scala sim

@@ -31,6 +31,11 @@ trait LatticeBase[U <: LatticeBase[U]] {
 
   // To be overridden by implementation
   def apply[T: libdsl.Num](arg: ReadableND[T])(implicit state: argon.State, coprocessorScope: CoprocessorScope): ReadableND[T]
+
+  def getShape(inputShape: Seq[I32]): Seq[I32] = {
+    // A lattice goes from (batch, dim, unit) -> (batch, unit)
+    inputShape.dropRight(2) ++ Seq(I32(units))
+  }
 }
 
 trait FullyUnrolledLattice extends LatticeBase[FullyUnrolledLattice] {
@@ -73,7 +78,7 @@ trait FullyUnrolledLattice extends LatticeBase[FullyUnrolledLattice] {
 
             val intermediate_values = Range(0, dimensions) map {
               dim =>
-                interfaces(dim % parallel_dimensions).deq(Seq(batch, unit, I32(dim)), ens)
+                interfaces(dim).deq(Seq(batch, unit, I32(dim)), ens)
             }
 
             mlir_libraries.debug_utils.TagVector("LatticeInputsTag", intermediate_values, ens)
@@ -129,7 +134,7 @@ trait FullyUnrolledLattice extends LatticeBase[FullyUnrolledLattice] {
       }
 
       // A lattice goes from (batch, dim, unit) -> (batch, unit)
-      lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
+      lazy val shape: Seq[I32] = getShape(arg.shape)
     }
   }
 }
@@ -264,7 +269,7 @@ trait ReduceBasedLattice extends LatticeBase[ReduceBasedLattice] {
       }
 
       // A lattice goes from (batch, dim, unit) -> (batch, unit)
-      lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
+      lazy val shape: Seq[I32] = getShape(arg.shape)
     }
   }
 }
@@ -478,7 +483,7 @@ trait StreamReduceLattice extends LatticeBase[StreamReduceLattice] {
       }
 
       // A lattice goes from (batch, dim, unit) -> (batch, unit)
-      lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
+      lazy val shape: Seq[I32] = getShape(arg.shape)
     }
   }
 }
@@ -596,7 +601,7 @@ trait CollapsedReduceBasedLattice extends LatticeBase[CollapsedReduceBasedLattic
       }
 
       // A lattice goes from (batch, dim, unit) -> (batch, unit)
-      lazy val shape: Seq[I32] = Seq(arg.shape.head, I32(units))
+      lazy val shape: Seq[I32] = getShape(arg.shape)
     }
   }
 }

@@ -8,7 +8,7 @@ import _root_.spatial.node.SRAMRead
 
 // For MLIR-spatial native operations
 trait Materialization {
-  def Materialize[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])
+  @forge.tags.api def Materialize[T: Num](parallelization: Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])
                          (implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
     cps.config.mode match {
       case CoprocOptions.Stream => MaterializeCoproc(parallelization, uptime)(arg)
@@ -198,7 +198,7 @@ trait Materialization {
     }
   }
 
-  def MaterializeCoproc[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
+  @forge.tags.api def MaterializeCoproc[T: Num](parallelization: scala.Int = 1, uptime: Fraction = Fraction(1, 1))(arg: types.ReadableND[T])(implicit state: argon.State, cps: CoprocessorScope): types.ReadableND[T] = {
 
     val dimensions = arg.shape.length
 
@@ -245,6 +245,7 @@ trait Materialization {
         val interface = coproc.interface
         new types.Interface[T] {
           override def enq(index: Seq[I32], ens: Set[Bit]): Void = {
+            isValid(index, ens)
             interface.enq(Vec.fromSeq(index), ens.toSeq reduceTree {
               _ && _
             })

@@ -6,6 +6,13 @@ import spatial.dsl
 trait Shaped {
   val shape: Seq[spatial.dsl.I32]
   def size(implicit state: argon.State): spatial.dsl.I32 = shape reduce {_ * _}
+  @forge.tags.api def isValid(index: Seq[spatial.dsl.I32], ens: Set[spatial.dsl.Bit]) = {
+//    (shape zip index).zipWithIndex foreach {
+//      case ((shape, ind), dim) =>
+//        val matches = (ind >= spatial.dsl.I32(0)) && (ind < shape)
+//        spatial.dsl.assertIf(ens, !matches, Some(spatial.dsl.Text(s"Out of Bounds at dimension $dim")))
+//    }
+  }
 }
 
 trait FunctionLike[InT, OutT] {

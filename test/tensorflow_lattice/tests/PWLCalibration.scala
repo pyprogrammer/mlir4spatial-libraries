@@ -20,7 +20,7 @@ object PWLCalibrationTest {
     -2.0, -1.1407079, -0.46503723, 1.6314386, -2.0).take(iterations)
 }
 
-@spatial class PWLCalibrationTest(num_loops: scala.Int) extends SpatialTest {
+@spatial class PWLCalibrationTest extends SpatialTest {
 
   type T = spatial.dsl.FixPt[TRUE, _5, _27]
   val dimensions = I32(1)
@@ -69,9 +69,3 @@ object PWLCalibrationTest {
     assert(Bit(true), "Executes")
   }
 }
-
-class PWLCalibrationTestL1 extends PWLCalibrationTest(1)
-
-class PWLCalibrationTestL2 extends PWLCalibrationTest(2)
-
-class PWLCalibrationTestL4 extends PWLCalibrationTest(4)

@@ -85,7 +85,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits]{
   private val CREDIT_REPLICANTS = 16
 
   protected val INPUT_FIFO_DEPTH = 16
-  protected val OUTPUT_FIFO_DEPTH = 32
+  protected val OUTPUT_FIFO_DEPTH = 256
   protected val PREALLOC_CREDITS = OUTPUT_FIFO_DEPTH / 2
   protected val DELAYED_CREDITS = OUTPUT_FIFO_DEPTH - PREALLOC_CREDITS - 2
 
@@ -131,12 +131,9 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits]{
         prealloc_fifo.enq(mux(shouldEnqRealCredit, ind, I32(-1)))
     }
 
-//    val credits = RegFile[I32](I32(CREDIT_REPLICANTS), I32(numInterfaces), Range(0, CREDIT_REPLICANTS * numInterfaces) map { _ => I32(PREALLOC_CREDITS / CREDIT_REPLICANTS) })
     val credits = Range(0, numInterfaces) map {inter =>
       RegFile[I32](I32(CREDIT_REPLICANTS), Range(0, CREDIT_REPLICANTS) map { _ => I32(PREALLOC_CREDITS / CREDIT_REPLICANTS)})
     }
-//    credits.nonbuffer
-//    credits.explicitName = s"CreditRegFile_${id}"
 
     implicit val ev: Bits[Vec[Bit]] = Vec.fromSeq(Range(0, numInterfaces) map { _ => Bit(false) })
     val deqEnableFIFO = FIFO[Vec[Bit]](I32(CREDIT_REPLICANTS / 2))
@@ -145,7 +142,7 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits]{
     'CoprocessorArbiterEnableCalcs.Pipe.Foreach(*) {
       iter => {
         val creditIter = iter % I32(CREDIT_REPLICANTS)
-        deqEnableFIFO.enq(Vec.fromSeq(Range(0, numInterfaces) map { iid => credits(iid)(I32(iid)) > I32(0) }))
+        deqEnableFIFO.enq(Vec.fromSeq(Range(0, numInterfaces) map { iid => credits(iid)(creditIter) > I32(0) }))
       }
     }
 
@@ -170,7 +167,6 @@ abstract class Coprocessor[In_T: Bits, Out_T: Bits]{
             val receivedCredit = I32(iid) === creditUpdate
             val update = mux(receivedCredit, I32(1), I32(0)) - mux(isNextTask, I32(1), I32(0))
             credits(iid)(creditIter) += update
-//            credits(creditIter, I32(iid)) = credits(creditIter, I32(iid)) + update
         }
         central_input_fifo.enq(nextTask, isValid)
         enq(nextTask.payload, Set(isValid))

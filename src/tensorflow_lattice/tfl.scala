@@ -6,7 +6,9 @@ import scala.reflect.ClassTag
 import mlir_libraries.{CoprocessorScope, Tensor => MLTensor}
 import _root_.spatial.dsl
 import mlir_libraries.types._
-object tfl extends PWLCalibration with Lattice {
+object tfl extends Lattice {
+
+  val PWLCalibration = tensorflow_lattice.PWLCalibration
 
   def CategoricalCalibration[T : Num](categorical_calibration_kernel: MLTensor[scala.Double])(arg:ReadableND[T])(implicit state: argon.State): ReadableND[T] = {
     val categorical_calibration_kernel_array = categorical_calibration_kernel.to2DSeq

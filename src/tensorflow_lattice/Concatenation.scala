@@ -76,13 +76,16 @@ trait Concatenation {
           }
 
           val fwdEnableFIFOs = interfaces map {_ =>
+            import spatial.metadata.memory._
             val fwdEnableFIFO = FIFO[IndexEnablePair](I32(128))
+            fwdEnableFIFO.explicitName = "FwdEnableFIFO"
             fwdEnableFIFO
           }
 
           override def enq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): Void = {
             assert(index.size == dims, "Index and dims should match up!")
             val enables = computeEnables(index, ens)
+            mlir_libraries.debug_utils.TagVector("ConcatenateEnables", enables, ens)
             enables.zipWithIndex foreach {
               case (en, input_index) =>
                 val sub_index = get_new_index(index, input_index)
@@ -93,13 +96,14 @@ trait Concatenation {
 
           override def deq(index: Seq[dsl.I32], ens: Set[dsl.Bit]): T = {
             val meta = fwdEnableFIFOs map { x => argon.stage(spatial.node.FIFODeq(x, ens))}
-            val enables = meta map {_.enable}
             val reads = (meta zip interfaces) map {
               case (met, interface) =>
                 val ind = met.index
                 val new_index = Range(0, dims) map {x => ind(x)}
                 interface.deq(new_index, ens + met.enable)
             }
+            val isEn = ens.toSeq.reduceTree {_ && _}
+            val enables = meta map {_.enable && isEn}
 
             val v = oneHotMux(enables, reads)
 

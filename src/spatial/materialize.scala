@@ -206,8 +206,8 @@ trait Materialization {
     implicit val bitsEV: Bits[Vec[I32]] = tmp
     val coprocessors = {
       Range(0, parallelization) map { _ =>
-        val subInterface = arg.getInterface
         new Coprocessor[Vec[I32], T] {
+          val subInterface = arg.getInterface
           override def coprocessorScope: CoprocessorScope = cps
 
           override def enq(inputs: Vec[I32], ens: Set[Bit]): Unit = {
@@ -245,7 +245,6 @@ trait Materialization {
         val interface = coproc.interface
         new types.Interface[T] {
           override def enq(index: Seq[I32], ens: Set[Bit]): Void = {
-            isValid(index, ens)
             interface.enq(Vec.fromSeq(index), ens.toSeq reduceTree {
               _ && _
             })

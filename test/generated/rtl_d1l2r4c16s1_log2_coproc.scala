@@ -127,7 +127,7 @@ import mlir_libraries.{DumpScope, LatticeConfig, LatticeOptions}
   }
 }
 
-class rtl_d1l2r4c16s1_log2_coproc_main(config: LatticeConfig) extends rtl_d1l2r4c16s1_log2_coproc(16, 1, config)
+class rtl_d1l2r4c16s1_log2_coproc_main(config: LatticeConfig) extends rtl_d1l2r4c16s1_log2_coproc(1, 1, config)
 
 class rtl_d1l2r4c16s1_log2_coproc_unrolled extends rtl_d1l2r4c16s1_log2_coproc_main(config = LatticeConfig(LatticeOptions.Unrolled))
 class rtl_d1l2r4c16s1_log2_coproc_streamed1 extends rtl_d1l2r4c16s1_log2_coproc_main(config = LatticeConfig(LatticeOptions.Streamed(1)))
